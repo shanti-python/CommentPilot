@@ -19,6 +19,9 @@ class MetaRateLimitError(MetaAPIError):
 class MetaTokenExpiredError(MetaAPIError):
     pass
 
+class MetaPermissionError(MetaAPIError):
+    pass
+
 
 class MetaClient:
     def __init__(self):
@@ -69,10 +72,24 @@ class MetaClient:
                         error_code = error_details.get("code")
                         error_subcode = error_details.get("error_subcode")
                         
+                        # Detect permission restriction (Code 10 or 200-299)
+                        is_permission_error = False
+                        try:
+                            code_val = int(error_code) if error_code is not None else None
+                            if code_val == 10 or (code_val is not None and 200 <= code_val <= 299):
+                                is_permission_error = True
+                        except (ValueError, TypeError):
+                            pass
+
                         if error_code == 10 or str(error_code) == "10":
                             logger.info(
                                 f"Meta permission restriction on {method} {path} (Attempt {attempt+1}/{retries}). "
                                 f"Code: {error_code}, Message: {message} (Will use local cache/mock data fallback)."
+                            )
+                        elif is_permission_error:
+                            logger.warning(
+                                f"Meta permission restriction on {method} {path} (Attempt {attempt+1}/{retries}). "
+                                f"Code: {error_code}, Subcode: {error_subcode}, Message: {message}"
                             )
                         else:
                             logger.error(
@@ -88,6 +105,10 @@ class MetaClient:
                         if response.status_code == 429 or error_code in [4, 17, 32, 613]:
                             raise MetaRateLimitError(message, response.status_code, error_code, error_subcode)
                             
+                        # Detect Permission Restriction (Error code 10 or 200-299)
+                        if is_permission_error:
+                            raise MetaPermissionError(message, response.status_code, error_code, error_subcode)
+
                         # Other API Errors
                         raise MetaAPIError(message, response.status_code, error_code, error_subcode)
                         

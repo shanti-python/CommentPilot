@@ -180,3 +180,56 @@ async def test_json_aware_placeholder_replacement(db_session: AsyncSession, test
     parsed = json.loads(json_res)
     assert parsed["text"] == 'Welcome cool"user!'
     assert parsed["dm_type"] == 'button_template'
+
+
+@pytest.mark.asyncio
+async def test_automation_flow_execution_direct_dm_permission_error(
+    db_session: AsyncSession,
+    test_instagram_account,
+    test_post,
+    test_automation_flow: AutomationFlow,
+    mock_meta_client
+):
+    """
+    Test that when send_direct_dm fails with a permission error (e.g. MetaPermissionError),
+    the flow execution continues, logs a success status for the overall DM action (since the comment
+    private reply succeeded), but records the direct DM error details in the log.
+    """
+    from app.integrations.meta.client import MetaPermissionError
+
+    # Override send_direct_dm mock to raise MetaPermissionError
+    mock_meta_client.send_direct_dm.side_effect = MetaPermissionError(
+        "Requires pages_messaging permission to manage the object",
+        status_code=400,
+        error_code=230
+    )
+
+    # Trigger comment processing with commenter_id to trigger the two-step direct DM delivery
+    comment_time = datetime.datetime.utcnow() - datetime.timedelta(seconds=5)
+    event = await comment_processor.process_comment(
+        db=db_session,
+        instagram_business_account_id="98765",
+        comment_id="comment_id_perm_error",
+        media_id="media_post_1",
+        text="I need that GUIDE! 👍",
+        username="jane_commenter",
+        timestamp=comment_time,
+        commenter_id="user_igsid_123"
+    )
+
+    assert event.status == "processed"
+
+    # Verify logs recorded in DB
+    logs_res = await db_session.execute(
+        select(AutomationLog).where(AutomationLog.comment_id == "comment_id_perm_error").order_by(AutomationLog.created_at)
+    )
+    logs = logs_res.scalars().all()
+
+    # Find the dm_sent action log
+    dm_log = next(log for log in logs if log.action_type == "dm_sent")
+    assert dm_log.status == "success"  # Overall success because Step 1 (send_dm_by_comment) succeeded
+    assert dm_log.details["message_id"] == "message_id_888"
+    assert dm_log.details["direct_message_id"] is None
+    assert "direct_dm_error" in dm_log.details
+    assert "Requires pages_messaging permission" in dm_log.details["direct_dm_error"]
+

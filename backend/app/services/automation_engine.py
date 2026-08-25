@@ -232,6 +232,7 @@ class AutomationEngine:
                     # Step 2: Send the actual rich template via direct DM using commenter_id (IGSID) if available
                     commenter_id = getattr(self.comment_event, "commenter_id", None)
                     direct_dm_id = None
+                    direct_dm_error = None
                     if commenter_id:
                         try:
                             direct_dm_id = await meta_client.send_direct_dm(
@@ -241,13 +242,18 @@ class AutomationEngine:
                             )
                             logger.info(f"Successfully sent rich DM template via direct message to {commenter_id}: {direct_dm_id}")
                         except Exception as e_direct:
+                            direct_dm_error = str(e_direct)
                             logger.warning(f"Failed to send rich direct DM template to commenter {commenter_id}: {str(e_direct)}")
                             
+                    log_details = {"message_id": dm_id, "direct_message_id": direct_dm_id, "text": dm_text}
+                    if direct_dm_error:
+                        log_details["direct_dm_error"] = direct_dm_error
+
                     await self.log_step(
                         flow_id=flow.id,
                         action_type="dm_sent",
                         status="success",
-                        details={"message_id": dm_id, "direct_message_id": direct_dm_id, "text": dm_text}
+                        details=log_details
                     )
                 except MetaAPIError as e:
                     success = False

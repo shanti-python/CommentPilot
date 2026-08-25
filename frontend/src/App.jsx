@@ -25,7 +25,7 @@ import {
   LogOut
 } from 'lucide-react';
 
-const API_BASE = 'http://localhost:8000/api/v1';
+const API_BASE = import.meta.env.VITE_API_BASE || '/api/v1';
 
 // Initial mocks for Demo Mode fallback
 const MOCK_ACCOUNTS = [
@@ -344,6 +344,7 @@ export default function App() {
   const [isConnectingFB, setIsConnectingFB] = useState(false);
   const [isSyncingPosts, setIsSyncingPosts] = useState(false);
   const [postsFilter, setPostsFilter] = useState("all"); // "all", "posts", "reels"
+  const [showConnectModal, setShowConnectModal] = useState(false);
 
   // Post Comments Modal state
   const [activeCommentsPost, setActiveCommentsPost] = useState(null);
@@ -422,7 +423,7 @@ export default function App() {
 
   const checkBackendHealth = async () => {
     try {
-      const res = await fetch(`${API_BASE.replace('/api/v1', '')}/`);
+      const res = await fetch(`${API_BASE}/auth/meta-config`);
       if (res.ok) {
         // Backend is online
         addToast("Connected to FastAPI Automation Backend.", "success");
@@ -622,35 +623,48 @@ export default function App() {
   };
 
   // Facebook Connect Handshake
-  const handleFacebookConnect = () => {
+  const handleFacebookConnect = (option = 'default') => {
     setIsConnectingFB(true);
 
     if (demoMode) {
       // Simulate mock connection
       setTimeout(() => {
+        const randId = Math.floor(Math.random() * 900);
         const newAcc = {
           id: Date.now(),
-          instagram_business_account_id: "99" + Math.floor(Math.random() * 900),
-          username: "brand_growth",
-          name: "Brand Growth Inc",
+          instagram_business_account_id: "99" + randId,
+          username: `brand_growth_${randId}`,
+          name: `Brand Growth Inc ${randId}`,
           profile_picture_url: "https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150&auto=format&fit=crop&q=80",
-          page_id: "44556",
-          page_name: "Brand Growth FB",
+          page_id: `page_${randId}`,
+          page_name: `Brand Growth FB ${randId}`,
           connected_at: new Date().toISOString()
         };
         const newFbAcc = {
           id: Date.now() + 1,
-          facebook_page_id: "fb_page_" + Math.floor(Math.random() * 900),
-          username: "brand_growth_fb",
-          name: "Brand Growth Facebook Page",
+          facebook_page_id: "fb_page_" + randId,
+          username: `brand_growth_fb_${randId}`,
+          name: `Brand Growth Facebook Page ${randId}`,
           profile_picture_url: "https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150&auto=format&fit=crop&q=80",
           connected_at: new Date().toISOString()
         };
         setAccounts(prev => [...prev, newAcc]);
         setFacebookAccounts(prev => [...prev, newFbAcc]);
-        addToast("Connected Instagram Business account & Facebook Page (Mock)", "success");
+        addToast(`Connected Instagram Business account & Facebook Page: Brand Growth Inc ${randId} (Mock)`, "success");
         setIsConnectingFB(false);
       }, 1000);
+      return;
+    }
+
+    if (option === 'manual') {
+      const enteredToken = prompt(
+        "Please enter your Facebook User Access Token manually:"
+      );
+      if (!enteredToken) {
+        setIsConnectingFB(false);
+        return;
+      }
+      submitFacebookToken(enteredToken.trim());
       return;
     }
 
@@ -667,6 +681,13 @@ export default function App() {
       return;
     }
 
+    const loginOptions = {
+      scope: metaScopes
+    };
+    if (option === 'reauthenticate') {
+      loginOptions.auth_type = 'reauthenticate';
+    }
+
     // Trigger Facebook SDK login
     window.FB.login(function(response) {
       if (response.authResponse) {
@@ -675,9 +696,7 @@ export default function App() {
         addToast("Facebook connection cancelled or not fully authorized.", "warning");
         setIsConnectingFB(false);
       }
-    }, {
-      scope: metaScopes
-    });
+    }, loginOptions);
   };
 
   const handleSyncPosts = async () => {
@@ -2010,7 +2029,7 @@ export default function App() {
               <div className="header-actions">
                 <button 
                   className={`btn btn-primary ${isConnectingFB ? 'btn-disabled' : ''}`} 
-                  onClick={handleFacebookConnect}
+                  onClick={() => setShowConnectModal(true)}
                   disabled={isConnectingFB}
                 >
                   <Link2 size={16} /> {isConnectingFB ? "Connecting..." : "Add Meta Account"}
@@ -2073,6 +2092,204 @@ export default function App() {
                 </div>
               </div>
             </div>
+
+            {/* Connect Meta Account Modal */}
+            {showConnectModal && (
+              <div className="modal-overlay" style={{
+                position: 'fixed',
+                top: 0,
+                left: 0,
+                right: 0,
+                bottom: 0,
+                backgroundColor: 'rgba(0, 0, 0, 0.75)',
+                backdropFilter: 'blur(8px)',
+                display: 'flex',
+                justifyContent: 'center',
+                alignItems: 'center',
+                zIndex: 2000,
+                padding: '20px'
+              }}>
+                <div className="card" style={{
+                  width: '100%',
+                  maxWidth: '520px',
+                  backgroundColor: '#111827',
+                  border: '1px solid var(--border-color)',
+                  borderRadius: '20px',
+                  boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.5)',
+                  position: 'relative',
+                  padding: '24px',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: '20px'
+                }}>
+                  <button 
+                    onClick={() => setShowConnectModal(false)}
+                    style={{
+                      position: 'absolute',
+                      top: '20px',
+                      right: '20px',
+                      background: 'none',
+                      border: 'none',
+                      color: 'var(--text-muted)',
+                      fontSize: '1.5rem',
+                      cursor: 'pointer',
+                      transition: 'color 0.2s',
+                      zIndex: 10
+                    }}
+                    onMouseEnter={(e) => e.target.style.color = 'white'}
+                    onMouseLeave={(e) => e.target.style.color = 'var(--text-muted)'}
+                  >
+                    &times;
+                  </button>
+
+                  <div style={{ borderBottom: '1px solid var(--border-color)', paddingBottom: '12px' }}>
+                    <h2 style={{ margin: 0, fontSize: '1.3rem', color: 'white', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                      <span style={{ color: 'var(--primary)' }}>🔗</span> Connect Meta Account
+                    </h2>
+                    <p style={{ margin: '4px 0 0 0', color: 'var(--text-secondary)', fontSize: '0.82rem' }}>
+                      Choose your connection method to link Pages or Instagram Channels.
+                    </p>
+                  </div>
+
+                  <div style={{
+                    backgroundColor: 'rgba(59, 130, 246, 0.08)',
+                    border: '1px solid rgba(59, 130, 246, 0.2)',
+                    borderRadius: '10px',
+                    padding: '12px',
+                    fontSize: '0.82rem',
+                    color: 'var(--text-secondary)',
+                    lineHeight: '1.4'
+                  }}>
+                    <strong style={{ color: 'white', display: 'block', marginBottom: '4px' }}>💡 Browser Session Isolation</strong>
+                    Facebook's JavaScript SDK binds to your active browser cookies. To connect a <strong>completely different</strong> account, you must first click the <strong>Log Out</strong> button below to clear the active profile session.
+                  </div>
+
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                    <button
+                      onClick={() => {
+                        setShowConnectModal(false);
+                        handleFacebookConnect('default');
+                      }}
+                      style={{
+                        padding: '14px',
+                        borderRadius: '12px',
+                        backgroundColor: 'rgba(255, 255, 255, 0.03)',
+                        border: '1px solid rgba(255, 255, 255, 0.08)',
+                        color: 'white',
+                        textAlign: 'left',
+                        cursor: 'pointer',
+                        transition: 'all 0.2s',
+                        display: 'flex',
+                        flexDirection: 'column',
+                        gap: '4px'
+                      }}
+                      onMouseEnter={(e) => {
+                        e.currentTarget.style.backgroundColor = 'rgba(99, 102, 241, 0.08)';
+                        e.currentTarget.style.borderColor = 'rgba(99, 102, 241, 0.3)';
+                      }}
+                      onMouseLeave={(e) => {
+                        e.currentTarget.style.backgroundColor = 'rgba(255, 255, 255, 0.03)';
+                        e.currentTarget.style.borderColor = 'rgba(255, 255, 255, 0.08)';
+                      }}
+                    >
+                      <strong style={{ fontSize: '0.9rem', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                        ⚡ Link Active Session
+                      </strong>
+                      <span style={{ fontSize: '0.78rem', color: 'var(--text-secondary)' }}>
+                        Quick connect using the Facebook profile currently active in your browser.
+                      </span>
+                    </button>
+
+                    <button
+                      onClick={() => {
+                        setShowConnectModal(false);
+                        handleFacebookConnect('reauthenticate');
+                      }}
+                      style={{
+                        padding: '14px',
+                        borderRadius: '12px',
+                        backgroundColor: 'rgba(255, 255, 255, 0.03)',
+                        border: '1px solid rgba(255, 255, 255, 0.08)',
+                        color: 'white',
+                        textAlign: 'left',
+                        cursor: 'pointer',
+                        transition: 'all 0.2s',
+                        display: 'flex',
+                        flexDirection: 'column',
+                        gap: '4px'
+                      }}
+                      onMouseEnter={(e) => {
+                        e.currentTarget.style.backgroundColor = 'rgba(16, 185, 129, 0.08)';
+                        e.currentTarget.style.borderColor = 'rgba(16, 185, 129, 0.3)';
+                      }}
+                      onMouseLeave={(e) => {
+                        e.currentTarget.style.backgroundColor = 'rgba(255, 255, 255, 0.03)';
+                        e.currentTarget.style.borderColor = 'rgba(255, 255, 255, 0.08)';
+                      }}
+                    >
+                      <strong style={{ fontSize: '0.9rem', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                        ➕ Confirm Password / Re-authenticate
+                      </strong>
+                      <span style={{ fontSize: '0.78rem', color: 'var(--text-secondary)' }}>
+                        Forces a password entry prompt to verify or refresh permissions for the current active account.
+                      </span>
+                    </button>
+
+                    <button
+                      onClick={() => {
+                        if (demoMode) {
+                          addToast("Mock Facebook Log Out triggered.", "success");
+                          setShowConnectModal(false);
+                          return;
+                        }
+                        if (!window.FB) {
+                          addToast("Meta SDK not loaded. Cannot trigger Facebook log out.", "warning");
+                          return;
+                        }
+                        window.FB.logout(function(response) {
+                          addToast("Logged out of Facebook browser session successfully. You can now connect a new account.", "success");
+                        });
+                        setShowConnectModal(false);
+                      }}
+                      style={{
+                        padding: '14px',
+                        borderRadius: '12px',
+                        backgroundColor: 'rgba(239, 68, 68, 0.05)',
+                        border: '1px solid rgba(239, 68, 68, 0.2)',
+                        color: 'var(--error)',
+                        textAlign: 'left',
+                        cursor: 'pointer',
+                        transition: 'all 0.2s',
+                        display: 'flex',
+                        flexDirection: 'column',
+                        gap: '4px'
+                      }}
+                      onMouseEnter={(e) => {
+                        e.currentTarget.style.backgroundColor = 'rgba(239, 68, 68, 0.15)';
+                        e.currentTarget.style.borderColor = 'rgba(239, 68, 68, 0.4)';
+                      }}
+                      onMouseLeave={(e) => {
+                        e.currentTarget.style.backgroundColor = 'rgba(239, 68, 68, 0.05)';
+                        e.currentTarget.style.borderColor = 'rgba(239, 68, 68, 0.2)';
+                      }}
+                    >
+                      <strong style={{ fontSize: '0.9rem', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                        🔴 Log Out of Facebook Browser Session
+                      </strong>
+                      <span style={{ fontSize: '0.78rem', color: 'var(--text-secondary)' }}>
+                        Clears your browser session. Use this if you want to switch and connect a different Facebook profile.
+                      </span>
+                    </button>
+                  </div>
+
+                  <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px', borderTop: '1px solid var(--border-color)', paddingTop: '12px' }}>
+                    <button className="btn btn-secondary" style={{ padding: '8px 16px' }} onClick={() => setShowConnectModal(false)}>
+                      Cancel
+                    </button>
+                  </div>
+                </div>
+              </div>
+            )}
           </div>
         )}
 
