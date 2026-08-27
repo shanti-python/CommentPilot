@@ -256,13 +256,34 @@ class AutomationEngine:
                         details=log_details
                     )
                 except MetaAPIError as e:
-                    success = False
-                    await self.log_step(
-                        flow_id=flow.id,
-                        action_type="dm_sent",
-                        status="failed",
-                        details={"error": str(e), "status_code": e.status_code, "text": dm_text}
+                    # Handle Meta platform limits on private replies
+                    is_platform_limit = (
+                        (e.error_code == 100 and e.error_subcode == 2534025) or
+                        "invalid for a private reply" in str(e).lower() or
+                        "already has a reply" in str(e).lower()
                     )
+
+                    if is_platform_limit:
+                        logger.info(f"Private reply skipped due to Meta platform limit: {str(e)}")
+                        await self.log_step(
+                            flow_id=flow.id,
+                            action_type="dm_sent",
+                            status="skipped",
+                            details={
+                                "reason": "Meta platform limit: Comment already replied to, or user has already received a private reply on this post.",
+                                "error": str(e)
+                            }
+                        )
+                        # Do not halt path traversal for Meta platform limitations
+                        success = True
+                    else:
+                        success = False
+                        await self.log_step(
+                            flow_id=flow.id,
+                            action_type="dm_sent",
+                            status="failed",
+                            details={"error": str(e), "status_code": e.status_code, "text": dm_text}
+                        )
                     
             elif node.type == "action_tag":
                 tag_name = node.config.get("tag", "new_tag")

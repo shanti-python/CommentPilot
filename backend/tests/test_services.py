@@ -233,3 +233,122 @@ async def test_automation_flow_execution_direct_dm_permission_error(
     assert "direct_dm_error" in dm_log.details
     assert "Requires pages_messaging permission" in dm_log.details["direct_dm_error"]
 
+
+@pytest.mark.asyncio
+async def test_post_specific_automation_instagram(
+    db_session: AsyncSession,
+    test_instagram_account,
+    test_post,
+    mock_meta_client
+):
+    # Update the post to have post-specific active automation rules
+    from app.db.repository import post_repo
+    
+    post = await post_repo.get(db_session, test_post.id)
+    post.automation_status = "active"
+    post.keyword = "EXCELLENT"
+    post.reply_message = "Post-specific reply for {{username}}!"
+    post.dm_message = "Post-specific DM for {{username}}!"
+    db_session.add(post)
+    await db_session.commit()
+
+    # Process comment that triggers the keyword
+    comment_time = datetime.datetime.utcnow() - datetime.timedelta(seconds=5)
+    event = await comment_processor.process_comment(
+        db=db_session,
+        instagram_business_account_id=test_instagram_account.instagram_business_account_id,
+        comment_id="comment_post_specific_ig",
+        media_id=test_post.id,
+        text="This is EXCELLENT!",
+        username="jane_commenter",
+        timestamp=comment_time,
+        commenter_id="user_igsid_123"
+    )
+
+    assert event.status == "processed"
+    assert event.processed_at is not None
+
+    # Verify Meta API calls for post-specific automation were invoked
+    mock_meta_client.reply_to_comment.assert_called_once_with(
+        page_access_token=test_instagram_account.page_access_token,
+        comment_id="comment_post_specific_ig",
+        message="Post-specific reply for jane_commenter!"
+    )
+    
+    mock_meta_client.send_dm_by_comment.assert_called_once_with(
+        page_access_token=test_instagram_account.page_access_token,
+        comment_id="comment_post_specific_ig",
+        message_text="Post-specific DM for jane_commenter!"
+    )
+
+    mock_meta_client.send_direct_dm.assert_called_once_with(
+        page_access_token=test_instagram_account.page_access_token,
+        recipient_id="user_igsid_123",
+        message_text="Post-specific DM for jane_commenter!"
+    )
+
+
+@pytest.mark.asyncio
+async def test_post_specific_automation_facebook(
+    db_session: AsyncSession,
+    test_user: User,
+    mock_meta_client
+):
+    # Mock-create a facebook account and a facebook post
+    from app.models.facebook import FacebookAccount, FacebookPost
+    import uuid
+
+    fb_acc = FacebookAccount(
+        user_id=test_user.id,
+        facebook_page_id="fb_page_id_123",
+        page_access_token="fb_token_123",
+        username="fb_test_page",
+        name="FB Page"
+    )
+    db_session.add(fb_acc)
+    await db_session.flush()
+
+    fb_post = FacebookPost(
+        id="fb_post_id_123",
+        facebook_account_id=fb_acc.id,
+        caption="FB Post Caption",
+        media_type="post",
+        permalink="https://facebook.com/post123",
+        timestamp=datetime.datetime.utcnow(),
+        automation_status="active",
+        keyword="GREAT",
+        reply_message="FB reply to {{username}}",
+        dm_message="FB DM to {{username}}"
+    )
+    db_session.add(fb_post)
+    await db_session.commit()
+
+    # Process comment that triggers the keyword
+    comment_time = datetime.datetime.utcnow() - datetime.timedelta(seconds=5)
+    event = await comment_processor.process_facebook_comment(
+        db=db_session,
+        facebook_page_id="fb_page_id_123",
+        comment_id="comment_post_specific_fb",
+        media_id="fb_post_id_123",
+        text="This is GREAT!",
+        username="fb_commenter",
+        timestamp=comment_time
+      )
+
+    assert event.status == "processed"
+    assert event.processed_at is not None
+
+    # Verify Meta API calls for post-specific FB automation were invoked
+    mock_meta_client.reply_to_comment.assert_called_once_with(
+        page_access_token="fb_token_123",
+        comment_id="comment_post_specific_fb",
+        message="FB reply to fb_commenter"
+    )
+    
+    mock_meta_client.send_dm_by_comment.assert_called_once_with(
+        page_access_token="fb_token_123",
+        comment_id="comment_post_specific_fb",
+        message_text="FB DM to fb_commenter"
+    )
+
+

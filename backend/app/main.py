@@ -76,6 +76,12 @@ app.add_middleware(
 app.include_router(api_router, prefix=settings.API_V1_STR)
 app.include_router(webhook_meta.router, prefix="/webhooks")
 
+from fastapi.staticfiles import StaticFiles
+import os
+uploads_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "uploads"))
+os.makedirs(uploads_dir, exist_ok=True)
+app.mount("/uploads", StaticFiles(directory=uploads_dir), name="uploads")
+
 @app.get("/", tags=["Root"])
 def root():
     return {

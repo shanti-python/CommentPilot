@@ -221,6 +221,13 @@ async def test_dm_automation_apis(
     assert exec_res.status_code == 200
     assert len(exec_res.json()) == 0
 
+    # 7b. POST /dm-automation/upload
+    files = {"file": ("test.png", b"fake image data", "image/png")}
+    upload_res = await client.post("/api/v1/dm-automation/upload", files=files, headers=headers)
+    assert upload_res.status_code == 200
+    assert "url" in upload_res.json()
+    assert "/uploads/" in upload_res.json()["url"]
+
     # 8. DELETE /dm-automation/{id}
     del_res = await client.delete(f"/api/v1/dm-automation/{created_rule['id']}", headers=headers)
     assert del_res.status_code == 200
@@ -228,4 +235,89 @@ async def test_dm_automation_apis(
     # Verify not found on subsequent get/update
     get_after_del = await client.get("/api/v1/dm-automation", headers=headers)
     assert len(get_after_del.json()) == 0
+
+
+@pytest.mark.asyncio
+async def test_posts_endpoints(client: AsyncClient, test_user: User, db_session: AsyncSession):
+    # Log in and get token
+    login_data = {"email": test_user.email, "password": "password123"}
+    res = await client.post("/api/v1/auth/login-json", json=login_data)
+    assert res.status_code == 200
+    token = res.json()["access_token"]
+    headers = {"Authorization": f"Bearer {token}"}
+
+    # First, let's mock-create an instagram account to relate posts to
+    from app.models.instagram import InstagramAccount
+    from app.models.facebook import FacebookAccount
+    import uuid
+
+    # Fetch user ID
+    from app.db.repository import user_repo
+    user_obj = await user_repo.get_by_email(db_session, test_user.email)
+
+    insta_acc = InstagramAccount(
+        user_id=user_obj.id,
+        instagram_business_account_id=f"test_insta_biz_{str(uuid.uuid4())}",
+        page_id="test_page_123",
+        page_access_token="test_token_123",
+        username="test_user_insta",
+        name="Test User Insta"
+    )
+    db_session.add(insta_acc)
+    
+    fb_acc = FacebookAccount(
+        user_id=user_obj.id,
+        facebook_page_id=f"test_fb_page_{str(uuid.uuid4())}",
+        page_access_token="test_fb_token_123",
+        username="test_fb_user",
+        name="Test Facebook Page"
+    )
+    db_session.add(fb_acc)
+    await db_session.commit()
+
+    # 1. Create a future Instagram post
+    future_post_payload = {
+        "instagram_account_id": insta_acc.id,
+        "caption": "My Future Post Caption",
+        "media_type": "IMAGE",
+        "keyword": "future",
+        "reply_message": "replied!",
+        "dm_message": "dm'd!"
+    }
+    future_post_res = await client.post("/api/v1/posts/future", json=future_post_payload, headers=headers)
+    assert future_post_res.status_code == 200
+    post_data = future_post_res.json()
+    assert post_data["caption"] == "My Future Post Caption"
+    assert post_data["is_future_post"] is True
+    assert post_data["automation_status"] == "active"
+
+    # 2. Update post automation config
+    update_payload = {
+        "automation_status": "paused",
+        "keyword": "future_updated",
+        "reply_message": "replied updated!",
+        "dm_message": "dm'd updated!"
+    }
+    update_res = await client.put(f"/api/v1/posts/{post_data['id']}/automation", json=update_payload, headers=headers)
+    assert update_res.status_code == 200
+    updated_data = update_res.json()
+    assert updated_data["automation_status"] == "paused"
+    assert updated_data["keyword"] == "future_updated"
+
+    # 3. Create a future Facebook post
+    fb_post_payload = {
+        "facebook_account_id": fb_acc.id,
+        "caption": "My FB Future Post Caption",
+        "media_type": "post",
+        "keyword": "fb_future",
+        "reply_message": "fb replied!",
+        "dm_message": "fb dm'd!"
+    }
+    fb_post_res = await client.post("/api/v1/posts/facebook/future", json=fb_post_payload, headers=headers)
+    assert fb_post_res.status_code == 200
+    fb_post_data = fb_post_res.json()
+    assert fb_post_data["caption"] == "My FB Future Post Caption"
+    assert fb_post_data["is_future_post"] is True
+    assert fb_post_data["automation_status"] == "active"
+
 

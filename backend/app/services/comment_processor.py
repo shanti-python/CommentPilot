@@ -1,4 +1,6 @@
 import datetime
+import re
+import json
 from sqlalchemy.ext.asyncio import AsyncSession
 from loguru import logger
 
@@ -17,6 +19,7 @@ from app.models.instagram import CommentEvent
 from app.models.facebook import FacebookCommentEvent
 from app.services.automation_engine import AutomationEngine
 from app.utils.text import contains_keyword
+from app.integrations.meta.client import meta_client
 
 class CommentProcessorService:
     async def process_comment(
@@ -69,6 +72,15 @@ class CommentProcessorService:
             await db.commit()
             return event
 
+        # Check for self-comments (business account commenting on their own posts)
+        if username and account.username and username.lower() == account.username.lower():
+            logger.info(f"Skipping comment {comment_id} because it was written by the account owner '{username}' themselves.")
+            event.status = "ignored"
+            event.error_message = "Skipped self comment"
+            db.add(event)
+            await db.commit()
+            return event
+
         # Cache comment in standard Comments table. Ensure Post exists (create placeholder if needed)
         try:
             post = await post_repo.get(db, media_id)
@@ -101,6 +113,99 @@ class CommentProcessorService:
             await db.commit()
         except Exception as e:
             logger.warning(f"Could not cache comment in comments table: {str(e)}")
+
+        # Check if this post has a post-specific active automation rule setup on this post
+        if post and post.automation_status == "active" and post.keyword:
+            if contains_keyword(text, post.keyword):
+                logger.info(f"Comment matches post-specific automation keyword '{post.keyword}' on post {media_id}")
+                
+                # 1. Reply to comment if message set
+                if post.reply_message:
+                    replacements = {
+                        "username": username,
+                        "comment_text": text,
+                        "post_id": media_id,
+                        "comment_id": comment_id
+                    }
+                    reply_text = post.reply_message
+                    for k, v in replacements.items():
+                        reply_text = re.sub(r'(?i)\{\{\s*' + re.escape(k) + r'\s*\}\}', str(v), reply_text)
+                    try:
+                        reply_id = await meta_client.reply_to_comment(
+                            page_access_token=account.page_access_token,
+                            comment_id=comment_id,
+                            message=reply_text
+                        )
+                        logger.info(f"Sent post-specific reply: {reply_id}")
+                        try:
+                            await comment_repo.create(db, obj_in={
+                                "id": reply_id or f"post_reply_{int(datetime.datetime.utcnow().timestamp())}",
+                                "media_id": media_id,
+                                "text": reply_text,
+                                "username": account.username,
+                                "timestamp": datetime.datetime.utcnow(),
+                                "parent_id": comment_id
+                            })
+                            await db.commit()
+                        except Exception as cache_ex:
+                            logger.warning(f"Could not cache post-specific reply: {str(cache_ex)}")
+                    except Exception as e_reply:
+                        logger.error(f"Failed to send post-specific reply: {str(e_reply)}")
+                
+                # 2. Send DM if message set
+                if post.dm_message:
+                    replacements = {
+                        "username": username,
+                        "comment_text": text,
+                        "post_id": media_id,
+                        "comment_id": comment_id
+                    }
+                    dm_text = post.dm_message
+                    try:
+                        stripped = dm_text.strip()
+                        if stripped.startswith("{") and stripped.endswith("}"):
+                            parsed_dm = json.loads(stripped)
+                            def replace_in_obj(obj):
+                                if isinstance(obj, str):
+                                    for k, v in replacements.items():
+                                        obj = re.sub(r'(?i)\{\{\s*' + re.escape(k) + r'\s*\}\}', str(v), obj)
+                                    return obj
+                                elif isinstance(obj, dict):
+                                    return {k: replace_in_obj(v) for k, v in obj.items()}
+                                elif isinstance(obj, list):
+                                    return [replace_in_obj(item) for item in obj]
+                                return obj
+                            parsed_dm = replace_in_obj(parsed_dm)
+                            dm_text = json.dumps(parsed_dm)
+                        else:
+                            for k, v in replacements.items():
+                                dm_text = re.sub(r'(?i)\{\{\s*' + re.escape(k) + r'\s*\}\}', str(v), dm_text)
+                    except Exception as e_json:
+                        logger.warning(f"Failed parsing JSON for post-specific DM: {str(e_json)}")
+                        for k, v in replacements.items():
+                            dm_text = re.sub(r'(?i)\{\{\s*' + re.escape(k) + r'\s*\}\}', str(v), dm_text)
+                    
+                    try:
+                        await meta_client.send_dm_by_comment(
+                            page_access_token=account.page_access_token,
+                            comment_id=comment_id,
+                            message_text=dm_text
+                        )
+                        if commenter_id:
+                            await meta_client.send_direct_dm(
+                                page_access_token=account.page_access_token,
+                                recipient_id=commenter_id,
+                                message_text=dm_text
+                            )
+                        logger.info("Sent post-specific DM successfully")
+                    except Exception as e_dm:
+                        logger.error(f"Failed to send post-specific DM: {str(e_dm)}")
+                        
+                event.status = "processed"
+                event.processed_at = datetime.datetime.utcnow()
+                db.add(event)
+                await db.commit()
+                return event
 
         # 3. Retrieve all active flows for the account
         active_flows = await automation_flow_repo.get_active_by_instagram_account_id(db, account.id)
@@ -211,6 +316,15 @@ class CommentProcessorService:
             await db.commit()
             return event
 
+        # Check for self-comments (page commenting on their own posts)
+        if username and account.username and username.lower() == account.username.lower():
+            logger.info(f"Skipping Facebook comment {comment_id} because it was written by the page owner '{username}' themselves.")
+            event.status = "ignored"
+            event.error_message = "Skipped self comment"
+            db.add(event)
+            await db.commit()
+            return event
+
         # Cache comment in standard FacebookComments table. Ensure Post exists (create placeholder if needed)
         try:
             post = await facebook_post_repo.get(db, media_id)
@@ -243,6 +357,94 @@ class CommentProcessorService:
             await db.commit()
         except Exception as e:
             logger.warning(f"Could not cache Facebook comment in comments table: {str(e)}")
+
+        # Check if this Facebook post has a post-specific active automation rule setup
+        if post and post.automation_status == "active" and post.keyword:
+            if contains_keyword(text, post.keyword):
+                logger.info(f"Comment matches post-specific Facebook automation keyword '{post.keyword}' on post {media_id}")
+                
+                # 1. Reply to comment if message set
+                if post.reply_message:
+                    replacements = {
+                        "username": username,
+                        "comment_text": text,
+                        "post_id": media_id,
+                        "comment_id": comment_id
+                    }
+                    reply_text = post.reply_message
+                    for k, v in replacements.items():
+                        reply_text = re.sub(r'(?i)\{\{\s*' + re.escape(k) + r'\s*\}\}', str(v), reply_text)
+                    try:
+                        reply_id = await meta_client.reply_to_comment(
+                            page_access_token=account.page_access_token,
+                            comment_id=comment_id,
+                            message=reply_text
+                        )
+                        logger.info(f"Sent post-specific Facebook reply: {reply_id}")
+                        try:
+                            await facebook_comment_repo.create(db, obj_in={
+                                "id": reply_id or f"fb_post_reply_{int(datetime.datetime.utcnow().timestamp())}",
+                                "media_id": media_id,
+                                "text": reply_text,
+                                "username": account.name or account.username,
+                                "timestamp": datetime.datetime.utcnow(),
+                                "parent_id": comment_id
+                            })
+                            await db.commit()
+                        except Exception as cache_ex:
+                            logger.warning(f"Could not cache post-specific Facebook reply: {str(cache_ex)}")
+                    except Exception as e_reply:
+                        logger.error(f"Failed to send post-specific Facebook reply: {str(e_reply)}")
+                
+                # 2. Send DM via private comment reply if message set
+                if post.dm_message:
+                    replacements = {
+                        "username": username,
+                        "comment_text": text,
+                        "post_id": media_id,
+                        "comment_id": comment_id
+                    }
+                    dm_text = post.dm_message
+                    try:
+                        stripped = dm_text.strip()
+                        if stripped.startswith("{") and stripped.endswith("}"):
+                            parsed_dm = json.loads(stripped)
+                            def replace_in_obj(obj):
+                                if isinstance(obj, str):
+                                    for k, v in replacements.items():
+                                        obj = re.sub(r'(?i)\{\{\s*' + re.escape(k) + r'\s*\}\}', str(v), obj)
+                                    return obj
+                                elif isinstance(obj, dict):
+                                    return {k: replace_in_obj(v) for k, v in obj.items()}
+                                elif isinstance(obj, list):
+                                    return [replace_in_obj(item) for item in obj]
+                                return obj
+                            parsed_dm = replace_in_obj(parsed_dm)
+                            dm_text = json.dumps(parsed_dm)
+                        else:
+                            for k, v in replacements.items():
+                                dm_text = re.sub(r'(?i)\{\{\s*' + re.escape(k) + r'\s*\}\}', str(v), dm_text)
+                    except Exception as e_json:
+                        logger.warning(f"Failed parsing JSON for post-specific DM: {str(e_json)}")
+                        for k, v in replacements.items():
+                            dm_text = re.sub(r'(?i)\{\{\s*' + re.escape(k) + r'\s*\}\}', str(v), dm_text)
+                    
+                    try:
+                        # Private replies work on Facebook using comment ID
+                        await meta_client.send_dm_by_comment(
+                            page_access_token=account.page_access_token,
+                            comment_id=comment_id,
+                            message_text=dm_text
+                        )
+                        logger.info("Sent post-specific Facebook DM successfully")
+                    except Exception as e_dm:
+                        logger.error(f"Failed to send post-specific Facebook DM: {str(e_dm)}")
+                        
+                event.status = "processed"
+                event.processed_at = datetime.datetime.utcnow()
+                db.add(event)
+                await db.commit()
+                return event
 
         # 3. Retrieve all active flows for the Facebook account
         active_flows = await automation_flow_repo.get_active_by_facebook_account_id(db, account.id)

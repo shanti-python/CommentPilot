@@ -599,3 +599,152 @@ async def delete_facebook_comment_endpoint(
         return {"status": "success", "message": "Facebook Comment successfully deleted"}
     except MetaAPIError as e:
         raise HTTPException(status_code=400, detail=f"Meta API error: {e.message}")
+
+
+import uuid
+
+class FuturePostCreatePayload(BaseModel):
+    instagram_account_id: int
+    caption: str
+    media_type: str = "IMAGE"
+    media_url: Optional[str] = None
+    keyword: Optional[str] = None
+    reply_message: Optional[str] = None
+    dm_message: Optional[str] = None
+
+class FacebookFuturePostCreatePayload(BaseModel):
+    facebook_account_id: int
+    caption: str
+    media_type: str = "post"
+    media_url: Optional[str] = None
+    keyword: Optional[str] = None
+    reply_message: Optional[str] = None
+    dm_message: Optional[str] = None
+
+class PostAutomationUpdatePayload(BaseModel):
+    automation_status: str  # setup, active, paused
+    keyword: Optional[str] = None
+    reply_message: Optional[str] = None
+    dm_message: Optional[str] = None
+
+
+@router.post("/future", response_model=PostSchema)
+async def create_future_post(
+    payload: FuturePostCreatePayload,
+    db: AsyncSession = Depends(deps.get_db),
+    current_user: User = Depends(deps.get_current_user),
+) -> Any:
+    """Create a future Instagram post placeholder in advance for automation."""
+    account = await instagram_account_repo.get(db, id=payload.instagram_account_id)
+    if not account or account.user_id != current_user.id:
+        raise HTTPException(status_code=403, detail="Not authorized to access this Instagram account")
+        
+    post_id = f"future_ig_{str(uuid.uuid4())}"
+    status_val = "active" if (payload.keyword and payload.reply_message) else "setup"
+    
+    post_in = {
+        "id": post_id,
+        "instagram_account_id": account.id,
+        "caption": payload.caption,
+        "media_type": payload.media_type,
+        "media_url": payload.media_url or "https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?w=500&auto=format&fit=crop&q=80",
+        "permalink": f"https://instagram.com/p/{post_id}",
+        "timestamp": datetime.utcnow(),
+        "automation_status": status_val,
+        "keyword": payload.keyword,
+        "reply_message": payload.reply_message,
+        "dm_message": payload.dm_message,
+        "is_future_post": True
+    }
+    
+    post_obj = await post_repo.create(db, obj_in=post_in)
+    await db.commit()
+    return post_obj
+
+
+@router.post("/facebook/future", response_model=FacebookPostSchema)
+async def create_facebook_future_post(
+    payload: FacebookFuturePostCreatePayload,
+    db: AsyncSession = Depends(deps.get_db),
+    current_user: User = Depends(deps.get_current_user),
+) -> Any:
+    """Create a future Facebook post placeholder in advance for automation."""
+    account = await facebook_account_repo.get(db, id=payload.facebook_account_id)
+    if not account or account.user_id != current_user.id:
+        raise HTTPException(status_code=403, detail="Not authorized to access this Facebook page")
+        
+    post_id = f"future_fb_{str(uuid.uuid4())}"
+    status_val = "active" if (payload.keyword and payload.reply_message) else "setup"
+    
+    post_in = {
+        "id": post_id,
+        "facebook_account_id": account.id,
+        "caption": payload.caption,
+        "media_type": payload.media_type,
+        "media_url": payload.media_url or "https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?w=500&auto=format&fit=crop&q=80",
+        "permalink": f"https://facebook.com/{post_id}",
+        "timestamp": datetime.utcnow(),
+        "automation_status": status_val,
+        "keyword": payload.keyword,
+        "reply_message": payload.reply_message,
+        "dm_message": payload.dm_message,
+        "is_future_post": True
+    }
+    
+    post_obj = await facebook_post_repo.create(db, obj_in=post_in)
+    await db.commit()
+    return post_obj
+
+
+@router.put("/{post_id}/automation", response_model=PostSchema)
+async def update_post_automation(
+    post_id: str,
+    payload: PostAutomationUpdatePayload,
+    db: AsyncSession = Depends(deps.get_db),
+    current_user: User = Depends(deps.get_current_user),
+) -> Any:
+    """Update post-specific automation config for an Instagram post."""
+    post = await post_repo.get(db, id=post_id)
+    if not post:
+        raise HTTPException(status_code=404, detail="Post not found")
+        
+    account = await instagram_account_repo.get(db, id=post.instagram_account_id)
+    if not account or account.user_id != current_user.id:
+        raise HTTPException(status_code=403, detail="Not authorized")
+        
+    post.automation_status = payload.automation_status
+    post.keyword = payload.keyword
+    post.reply_message = payload.reply_message
+    post.dm_message = payload.dm_message
+    
+    db.add(post)
+    await db.commit()
+    await db.refresh(post)
+    return post
+
+
+@router.put("/facebook/{post_id}/automation", response_model=FacebookPostSchema)
+async def update_facebook_post_automation(
+    post_id: str,
+    payload: PostAutomationUpdatePayload,
+    db: AsyncSession = Depends(deps.get_db),
+    current_user: User = Depends(deps.get_current_user),
+) -> Any:
+    """Update post-specific automation config for a Facebook post."""
+    post = await facebook_post_repo.get(db, id=post_id)
+    if not post:
+        raise HTTPException(status_code=404, detail="Facebook Post not found")
+        
+    account = await facebook_account_repo.get(db, id=post.facebook_account_id)
+    if not account or account.user_id != current_user.id:
+        raise HTTPException(status_code=403, detail="Not authorized")
+        
+    post.automation_status = payload.automation_status
+    post.keyword = payload.keyword
+    post.reply_message = payload.reply_message
+    post.dm_message = payload.dm_message
+    
+    db.add(post)
+    await db.commit()
+    await db.refresh(post)
+    return post

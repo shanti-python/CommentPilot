@@ -42,6 +42,13 @@ class FacebookPost(Base):
     permalink = Column(Text, nullable=True)
     timestamp = Column(DateTime, nullable=True)
     
+    # Automation Setup on a Post level
+    automation_status = Column(String, default="setup")  # setup, active, paused
+    keyword = Column(String, nullable=True)
+    reply_message = Column(Text, nullable=True)
+    dm_message = Column(Text, nullable=True)
+    is_future_post = Column(Boolean, default=False)
+    
     facebook_account = relationship("FacebookAccount", back_populates="posts")
     comments = relationship("FacebookComment", back_populates="post", cascade="all, delete-orphan")
 

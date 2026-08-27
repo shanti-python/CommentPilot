@@ -27,232 +27,7 @@ import {
 
 const API_BASE = import.meta.env.VITE_API_BASE || '/api/v1';
 
-// Initial mocks for Demo Mode fallback
-const MOCK_ACCOUNTS = [
-  {
-    id: 1,
-    instagram_business_account_id: "98765",
-    username: "fitlife_co",
-    name: "FitLife Apparel",
-    profile_picture_url: "https://images.unsplash.com/photo-1517841905240-472988babdf9?w=150&auto=format&fit=crop&q=80",
-    page_id: "12345",
-    page_name: "FitLife Page",
-    connected_at: "2026-08-01T10:00:00Z"
-  }
-];
 
-const MOCK_FACEBOOK_ACCOUNTS = [
-  {
-    id: 101,
-    facebook_page_id: "fb_page_123",
-    username: "fitlife_fb",
-    name: "FitLife Facebook Page",
-    profile_picture_url: "https://images.unsplash.com/photo-1541872703-74c5e44368f9?w=150&auto=format&fit=crop&q=80",
-    connected_at: "2026-08-01T10:00:00Z"
-  }
-];
-
-const MOCK_POSTS = [
-  {
-    id: "media_post_1",
-    media_url: "https://images.unsplash.com/photo-1517838277536-f5f99be501cd?w=500&auto=format&fit=crop&q=80",
-    caption: "Drop the word 'GUIDE' below to get our 7-day home workout plan! 🏋️‍♂️💪 #homeworkout #fitness",
-    media_type: "IMAGE",
-    permalink: "https://instagram.com/p/media_post_1",
-    timestamp: "2026-08-02T12:00:00Z"
-  },
-  {
-    id: "media_post_2",
-    media_url: "https://images.unsplash.com/photo-1490645935967-10de6ba17061?w=500&auto=format&fit=crop&q=80",
-    caption: "Want 20% off your next order? Comment 'PROMO' and we will DM you a secret discount code! 🏷️",
-    media_type: "IMAGE",
-    permalink: "https://instagram.com/p/media_post_2",
-    timestamp: "2026-08-03T08:30:00Z"
-  }
-];
-
-const MOCK_FACEBOOK_POSTS = [
-  {
-    id: "fb_post_1",
-    facebook_account_id: 101,
-    caption: "Comment 'GUIDE' below to receive our exclusive Facebook Page optimization blueprint! 📘🚀",
-    media_type: "post",
-    media_url: "https://images.unsplash.com/photo-1541872703-74c5e44368f9?w=500&auto=format&fit=crop&q=80",
-    permalink: "https://facebook.com/posts/fb_post_1",
-    timestamp: "2026-08-02T12:00:00Z"
-  },
-  {
-    id: "fb_post_2",
-    facebook_account_id: 101,
-    caption: "Comment 'DISCOUNT' to get 30% off our social media growth toolkit! 🏷️📈",
-    media_type: "post",
-    media_url: "https://images.unsplash.com/photo-1460925895917-afdab827c52f?w=500&auto=format&fit=crop&q=80",
-    permalink: "https://facebook.com/posts/fb_post_2",
-    timestamp: "2026-08-03T08:30:00Z"
-  }
-];
-
-const MOCK_FLOWS = [
-  {
-    id: "flow_1",
-    name: "Workout Guide Lead Magnet",
-    is_active: true,
-    nodes: [
-      { id: "node_1", type: "trigger", config: { keywords: ["guide"], exact_word: true } },
-      { id: "node_2", type: "action_reply", config: { message: "Hey {{username}}! I just sent the link to your DMs. Let me know what you think! 👍" } },
-      { id: "node_3", type: "action_dm", config: { message: "Hi {{username}}! Here is your workout plan: https://fitlife.co/home-guide" } },
-      { id: "node_4", type: "action_tag", config: { tag: "lead_guide" } }
-    ],
-    edges: [
-      { id: "e1", source_node_id: "node_1", target_node_id: "node_2" },
-      { id: "e2", source_node_id: "node_2", target_node_id: "node_3" },
-      { id: "e3", source_node_id: "node_3", target_node_id: "node_4" }
-    ]
-  }
-];
-
-const MOCK_COMMENTS = [
-  {
-    comment_id: "c_101",
-    media_id: "media_post_1",
-    text: "Can I have the guide please?",
-    username: "john_doe",
-    timestamp: "2026-08-03T10:15:00Z",
-    status: "processed",
-    platform: "instagram"
-  },
-  {
-    comment_id: "fb_c_101",
-    media_id: "fb_post_1",
-    text: "Can I get the Facebook Page Optimization Guide?",
-    username: "fb_user_1",
-    timestamp: "2026-08-03T10:16:00Z",
-    status: "processed",
-    platform: "facebook"
-  },
-  {
-    comment_id: "c_102",
-    media_id: "media_post_2",
-    text: "I want the promo code!",
-    username: "sara_fit",
-    timestamp: "2026-08-03T11:02:00Z",
-    status: "processed",
-    platform: "instagram"
-  },
-  {
-    comment_id: "c_103",
-    media_id: "media_post_1",
-    text: "looks cool",
-    username: "fitness_fan",
-    timestamp: "2026-08-03T11:05:00Z",
-    status: "ignored",
-    platform: "instagram"
-  }
-];
-
-const MOCK_LOGS = [
-  { id: 1, flow_id: "flow_1", comment_id: "c_101", action_type: "trigger_match", status: "success", created_at: "2026-08-03T10:15:02Z", details: { matched_keywords: ["guide"] } },
-  { id: 2, flow_id: "flow_1", comment_id: "c_101", action_type: "reply_sent", status: "success", created_at: "2026-08-03T10:15:04Z", details: { reply_id: "rep_999" } },
-  { id: 3, flow_id: "flow_1", comment_id: "c_101", action_type: "dm_sent", status: "success", created_at: "2026-08-03T10:15:05Z", details: { message_id: "msg_888" } },
-  { id: 4, flow_id: "flow_1", comment_id: "c_101", action_type: "tag_added", status: "success", created_at: "2026-08-03T10:15:06Z", details: { tag: "lead_guide" } }
-];
-
-const MOCK_DM_RULES = [
-  {
-    id: "dm_rule_1",
-    instagram_account_id: 1,
-    name: "Exact Guide DM Trigger",
-    trigger_type: "exact_keyword",
-    keyword: "guide",
-    reply_text: "Welcome! Here is your exclusive direct workout guide link: https://fitlife.co/dm-guide",
-    is_active: true,
-    created_at: "2026-08-01T10:00:00Z",
-    updated_at: "2026-08-01T10:00:00Z"
-  },
-  {
-    id: "dm_rule_2",
-    instagram_account_id: 1,
-    name: "First Contact greeting",
-    trigger_type: "first_message",
-    keyword: null,
-    reply_text: "Hey! Thanks for sending us your first direct message. How can we help you today?",
-    is_active: true,
-    created_at: "2026-08-02T11:00:00Z",
-    updated_at: "2026-08-02T11:00:00Z"
-  }
-];
-
-const MOCK_DM_MESSAGES = [
-  {
-    id: "mid_dm_101",
-    instagram_account_id: 1,
-    sender_id: "sender_alex",
-    recipient_id: "98765",
-    text: "guide",
-    timestamp: "2026-08-04T12:00:00Z",
-    status: "processed",
-    processed_at: "2026-08-04T12:00:02Z",
-    error_message: null
-  },
-  {
-    id: "mid_dm_102",
-    instagram_account_id: 1,
-    sender_id: "sender_alex",
-    recipient_id: "98765",
-    text: "Hello! This is my first time message.",
-    timestamp: "2026-08-04T12:10:00Z",
-    status: "processed",
-    processed_at: "2026-08-04T12:10:01Z",
-    error_message: null
-  },
-  {
-    id: "mid_dm_103",
-    instagram_account_id: 1,
-    sender_id: "sender_bob",
-    recipient_id: "98765",
-    text: "How much is your premium plan?",
-    timestamp: "2026-08-04T13:00:00Z",
-    status: "ignored",
-    processed_at: null,
-    error_message: null
-  }
-];
-
-const MOCK_DM_CONVERSATIONS = [
-  {
-    id: "1_sender_alex",
-    instagram_account_id: 1,
-    participant_id: "sender_alex",
-    last_message_at: "2026-08-04T12:10:00Z",
-    created_at: "2026-08-04T12:00:00Z"
-  },
-  {
-    id: "1_sender_bob",
-    instagram_account_id: 1,
-    participant_id: "sender_bob",
-    last_message_at: "2026-08-04T13:00:00Z",
-    created_at: "2026-08-04T13:00:00Z"
-  }
-];
-
-const MOCK_DM_EXECUTIONS = [
-  {
-    id: "exec_dm_101",
-    automation_id: "dm_rule_1",
-    message_id: "mid_dm_101",
-    status: "success",
-    error_message: null,
-    executed_at: "2026-08-04T12:00:02Z"
-  },
-  {
-    id: "exec_dm_102",
-    automation_id: "dm_rule_2",
-    message_id: "mid_dm_102",
-    status: "success",
-    error_message: null,
-    executed_at: "2026-08-04T12:10:01Z"
-  }
-];
 
 
 const renderDmText = (text) => {
@@ -269,10 +44,19 @@ const renderDmText = (text) => {
   return `"${text}"`;
 };
 
+const ensureAbsoluteUrl = (url) => {
+  if (!url) return '';
+  const trimmed = url.trim();
+  if (trimmed.startsWith('http://') || trimmed.startsWith('https://') || trimmed.startsWith('data:')) {
+    return trimmed;
+  }
+  return `https://${trimmed}`;
+};
+
 
 export default function App() {
   const [activeTab, setActiveTab] = useState('dashboard');
-  const [demoMode, setDemoMode] = useState(false);
+  const demoMode = false;
   const [isRunningAutomation, setIsRunningAutomation] = useState(false);
   const [runningFlowId, setRunningFlowId] = useState(null);
   const [isGuideOpen, setIsGuideOpen] = useState(false);
@@ -344,6 +128,26 @@ export default function App() {
   const [isConnectingFB, setIsConnectingFB] = useState(false);
   const [isSyncingPosts, setIsSyncingPosts] = useState(false);
   const [postsFilter, setPostsFilter] = useState("all"); // "all", "posts", "reels"
+  const [postsAutomationFilter, setPostsAutomationFilter] = useState("all"); // "all", "active", "setup", "paused"
+  const [showFuturePostModal, setShowFuturePostModal] = useState(false);
+  const [futurePostForm, setFuturePostForm] = useState({
+    instagram_account_id: '',
+    facebook_account_id: '',
+    caption: '',
+    media_type: 'IMAGE',
+    media_url: '',
+    keyword: '',
+    reply_message: '',
+    dm_message: ''
+  });
+  const [showConfigureAutomationModal, setShowConfigureAutomationModal] = useState(false);
+  const [selectedPostForAutomation, setSelectedPostForAutomation] = useState(null);
+  const [automationForm, setAutomationForm] = useState({
+    automation_status: 'setup',
+    keyword: '',
+    reply_message: '',
+    dm_message: ''
+  });
   const [showConnectModal, setShowConnectModal] = useState(false);
 
   // Post Comments Modal state
@@ -431,41 +235,12 @@ export default function App() {
         throw new Error("Offline");
       }
     } catch (err) {
-      setDemoMode(true);
-      setIsAuthenticated(true); // Skip login in demo mode for quick preview
-      loadDemoData();
-      addToast("FastAPI Database offline. Starting in interactive Demo Mode.", "warning");
+      addToast("FastAPI Database offline or connection refused. Please start backend services.", "error");
     }
-  };
-
-  const loadDemoData = () => {
-    setAccounts(MOCK_ACCOUNTS);
-    setFacebookAccounts(MOCK_FACEBOOK_ACCOUNTS);
-    setPosts(MOCK_POSTS);
-    setFacebookPosts(MOCK_FACEBOOK_POSTS);
-    setFlows(MOCK_FLOWS);
-    setComments(MOCK_COMMENTS);
-    setLogs(MOCK_LOGS);
-    setDmRules(MOCK_DM_RULES);
-    setDmMessages(MOCK_DM_MESSAGES);
-    setDmConversations(MOCK_DM_CONVERSATIONS);
-    setDmExecutions(MOCK_DM_EXECUTIONS);
-    setAnalytics({
-      total_comments: 4,
-      replies_sent: 2,
-      dms_sent: 2,
-      failed_replies: 0,
-      avg_response_time_seconds: 4.2,
-      keyword_counts: { "guide": 2, "promo": 1 }
-    });
   };
 
   const handleLogin = async (e) => {
     e.preventDefault();
-    if (demoMode) {
-      setIsAuthenticated(true);
-      return;
-    }
 
     try {
       const res = await fetch(`${API_BASE}/auth/login-json`, {
@@ -743,6 +518,177 @@ export default function App() {
       addToast("Connection error while syncing posts.", "error");
     } finally {
       setIsSyncingPosts(false);
+    }
+  };
+
+  const handleCreateFuturePost = async (e) => {
+    if (e) e.preventDefault();
+    if (demoMode) {
+      const isFb = postsFilterPlatform === 'facebook';
+      const newPostId = `mock_future_${isFb ? 'fb' : 'ig'}_${Date.now()}`;
+      const newPost = {
+        id: newPostId,
+        caption: futurePostForm.caption,
+        media_type: isFb ? 'post' : futurePostForm.media_type,
+        media_url: futurePostForm.media_url || 'https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?w=500&auto=format&fit=crop&q=80',
+        permalink: isFb ? `https://facebook.com/${newPostId}` : `https://instagram.com/p/${newPostId}`,
+        timestamp: new Date().toISOString(),
+        automation_status: (futurePostForm.keyword && futurePostForm.reply_message) ? 'active' : 'setup',
+        keyword: futurePostForm.keyword || null,
+        reply_message: futurePostForm.reply_message || null,
+        dm_message: futurePostForm.dm_message || null,
+        is_future_post: true
+      };
+
+      if (isFb) {
+        newPost.facebook_account_id = parseInt(futurePostForm.facebook_account_id) || (facebookAccounts[0]?.id || 1);
+        setFacebookPosts(prev => [newPost, ...prev]);
+      } else {
+        newPost.instagram_account_id = parseInt(futurePostForm.instagram_account_id) || (accounts[0]?.id || 1);
+        setPosts(prev => [newPost, ...prev]);
+      }
+      
+      addToast("Created future post in demo mode.", "success");
+      setShowFuturePostModal(false);
+      setFuturePostForm({
+        instagram_account_id: '',
+        facebook_account_id: '',
+        caption: '',
+        media_type: 'IMAGE',
+        media_url: '',
+        keyword: '',
+        reply_message: '',
+        dm_message: ''
+      });
+      return;
+    }
+
+    const isFb = postsFilterPlatform === 'facebook';
+    const payload = isFb ? {
+      facebook_account_id: parseInt(futurePostForm.facebook_account_id) || facebookAccounts[0]?.id,
+      caption: futurePostForm.caption,
+      media_type: 'post',
+      media_url: futurePostForm.media_url || null,
+      keyword: futurePostForm.keyword || null,
+      reply_message: futurePostForm.reply_message || null,
+      dm_message: futurePostForm.dm_message || null
+    } : {
+      instagram_account_id: parseInt(futurePostForm.instagram_account_id) || accounts[0]?.id,
+      caption: futurePostForm.caption,
+      media_type: futurePostForm.media_type,
+      media_url: futurePostForm.media_url || null,
+      keyword: futurePostForm.keyword || null,
+      reply_message: futurePostForm.reply_message || null,
+      dm_message: futurePostForm.dm_message || null
+    };
+
+    if (isFb && !payload.facebook_account_id) {
+      addToast("Please connect a Facebook Page first.", "warning");
+      return;
+    }
+    if (!isFb && !payload.instagram_account_id) {
+      addToast("Please connect an Instagram Account first.", "warning");
+      return;
+    }
+
+    try {
+      const url = isFb ? `${API_BASE}/posts/facebook/future` : `${API_BASE}/posts/future`;
+      const res = await fetch(url, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify(payload)
+      });
+
+      if (res.ok) {
+        addToast("Future post created successfully.", "success");
+        setShowFuturePostModal(false);
+        setFuturePostForm({
+          instagram_account_id: '',
+          facebook_account_id: '',
+          caption: '',
+          media_type: 'IMAGE',
+          media_url: '',
+          keyword: '',
+          reply_message: '',
+          dm_message: ''
+        });
+        fetchBackendData();
+      } else {
+        const err = await res.json();
+        addToast(err.detail || "Failed to create future post.", "error");
+      }
+    } catch (err) {
+      addToast("Connection error while creating future post.", "error");
+    }
+  };
+
+  const handleUpdatePostAutomation = async (e) => {
+    if (e) e.preventDefault();
+    if (!selectedPostForAutomation) return;
+
+    if (demoMode) {
+      const isFb = postsFilterPlatform === 'facebook';
+      const updatePost = (p) => {
+        if (p.id === selectedPostForAutomation.id) {
+          return {
+            ...p,
+            automation_status: automationForm.automation_status,
+            keyword: automationForm.keyword || null,
+            reply_message: automationForm.reply_message || null,
+            dm_message: automationForm.dm_message || null
+          };
+        }
+        return p;
+      };
+
+      if (isFb) {
+        setFacebookPosts(prev => prev.map(updatePost));
+      } else {
+        setPosts(prev => prev.map(updatePost));
+      }
+
+      addToast("Updated automation configuration in demo mode.", "success");
+      setShowConfigureAutomationModal(false);
+      setSelectedPostForAutomation(null);
+      return;
+    }
+
+    const isFb = postsFilterPlatform === 'facebook';
+    const payload = {
+      automation_status: automationForm.automation_status,
+      keyword: automationForm.keyword || null,
+      reply_message: automationForm.reply_message || null,
+      dm_message: automationForm.dm_message || null
+    };
+
+    try {
+      const url = isFb 
+        ? `${API_BASE}/posts/facebook/${selectedPostForAutomation.id}/automation`
+        : `${API_BASE}/posts/${selectedPostForAutomation.id}/automation`;
+      
+      const res = await fetch(url, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify(payload)
+      });
+
+      if (res.ok) {
+        addToast("Automation updated successfully.", "success");
+        setShowConfigureAutomationModal(false);
+        setSelectedPostForAutomation(null);
+        fetchBackendData();
+      } else {
+        const err = await res.json();
+        addToast(err.detail || "Failed to update automation.", "error");
+      }
+    } catch (err) {
+      addToast("Connection error while updating automation.", "error");
     }
   };
 
@@ -1322,9 +1268,9 @@ export default function App() {
       instagram_account_id: defaultInstaId,
       facebook_account_id: defaultFbId,
       nodes: [
-        { id: triggerId, type: "trigger", config: { keywords: ["Guide", "Link"], exact_word: true } },
-        { id: replyId, type: "action_reply", config: { message: "Thanks for commenting {{username}}! I just sent the link to your DMs." } },
-        { id: dmId, type: "action_dm", config: { message: "Hi {{username}}! Here is your exclusive guide link: https://example.com/guide" } }
+        { id: triggerId, type: "trigger", config: { keywords: [], exact_word: true } },
+        { id: replyId, type: "action_reply", config: { message: "" } },
+        { id: dmId, type: "action_dm", config: { message: "" } }
       ],
       edges: [
         { id: edgeId1, source_node_id: triggerId, target_node_id: replyId },
@@ -1430,49 +1376,7 @@ export default function App() {
     }
   };
 
-  // Mocking Live Trigger Simulation (Awesome feature!)
-  const handleSimulateWebhook = () => {
-    addToast("Simulating webhook comment event...", "info");
-    setTimeout(() => {
-      const isFb = Math.random() > 0.5;
-      const randomUser = isFb 
-        ? ["fb_alex", "fb_clara", "fb_sam", "fb_david"][Math.floor(Math.random() * 4)]
-        : ["alex_gym", "clara_reads", "sam_fit", "david_tech"][Math.floor(Math.random() * 4)];
-      const randomText = ["I need the guide!", "send guide", "is the promo still open?", "what guide?"][Math.floor(Math.random() * 4)];
-      
-      const newComment = {
-        comment_id: (isFb ? "fb_" : "") + "c_sim_" + Date.now(),
-        media_id: isFb ? "fb_post_1" : "media_post_1",
-        text: randomText,
-        username: randomUser,
-        timestamp: new Date().toISOString(),
-        status: "processed",
-        platform: isFb ? "facebook" : "instagram"
-      };
 
-      setComments(prev => [newComment, ...prev]);
-      
-      // Match logs simulation
-      const newLogs = [
-        { id: Math.random(), flow_id: "flow_1", comment_id: newComment.comment_id, action_type: "trigger_match", status: "success", created_at: new Date().toISOString(), details: { matched_keywords: ["guide"] } },
-        { id: Math.random(), flow_id: "flow_1", comment_id: newComment.comment_id, action_type: "reply_sent", status: "success", created_at: new Date().toISOString(), details: { reply_id: "rep_sim" } },
-        { id: Math.random(), flow_id: "flow_1", comment_id: newComment.comment_id, action_type: "dm_sent", status: "success", created_at: new Date().toISOString(), details: { message_id: "msg_sim" } }
-      ];
-
-      setLogs(prev => [...newLogs, ...prev]);
-      
-      // Update Analytics
-      setAnalytics(prev => ({
-        ...prev,
-        total_comments: prev.total_comments + 1,
-        replies_sent: prev.replies_sent + 1,
-        dms_sent: prev.dms_sent + 1,
-        keyword_counts: { ...prev.keyword_counts, "guide": (prev.keyword_counts["guide"] || 0) + 1 }
-      }));
-
-      addToast(`Webhook triggered ${isFb ? 'Facebook' : 'Instagram'} automation for @${randomUser}! Check Logs.`, "success");
-    }, 1200);
-  };
 
   if (!isAuthenticated) {
     return (
@@ -1482,7 +1386,7 @@ export default function App() {
             <div className="auth-logo">
               <GitFork size={30} />
             </div>
-            <h2>CommentPilot</h2>
+            <h2>ShantiDM</h2>
             <p>Instagram & Facebook Comment Automation Portal</p>
           </div>
           
@@ -1804,7 +1708,7 @@ export default function App() {
           <div className="logo-icon">
             <GitFork size={20} />
           </div>
-          <span className="logo-text">CommentPilot</span>
+          <span className="logo-text">ShantiDM</span>
         </div>
 
         <div className="sidebar-nav">
@@ -1909,9 +1813,6 @@ export default function App() {
                 >
                   <Zap size={16} /> {isRunningAutomation ? "Running..." : "Run Automation"}
                 </button>
-                <button className="btn btn-accent" onClick={handleSimulateWebhook}>
-                  <Play size={16} /> Mock Webhook Event
-                </button>
               </div>
             </div>
 
@@ -1968,7 +1869,7 @@ export default function App() {
                     <tbody>
                       {Object.keys(analytics.keyword_counts).length === 0 ? (
                         <tr>
-                          <td colSpan="4" style={{ textAlign: 'center', color: 'var(--text-muted)' }}>No matches recorded yet. Run a webhook simulation!</td>
+                          <td colSpan="4" style={{ textAlign: 'center', color: 'var(--text-muted)' }}>No matches recorded yet.</td>
                         </tr>
                       ) : (
                         Object.entries(analytics.keyword_counts).map(([kw, count]) => (
@@ -2151,19 +2052,6 @@ export default function App() {
                     </p>
                   </div>
 
-                  <div style={{
-                    backgroundColor: 'rgba(59, 130, 246, 0.08)',
-                    border: '1px solid rgba(59, 130, 246, 0.2)',
-                    borderRadius: '10px',
-                    padding: '12px',
-                    fontSize: '0.82rem',
-                    color: 'var(--text-secondary)',
-                    lineHeight: '1.4'
-                  }}>
-                    <strong style={{ color: 'white', display: 'block', marginBottom: '4px' }}>💡 Browser Session Isolation</strong>
-                    Facebook's JavaScript SDK binds to your active browser cookies. To connect a <strong>completely different</strong> account, you must first click the <strong>Log Out</strong> button below to clear the active profile session.
-                  </div>
-
                   <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
                     <button
                       onClick={() => {
@@ -2193,7 +2081,7 @@ export default function App() {
                       }}
                     >
                       <strong style={{ fontSize: '0.9rem', display: 'flex', alignItems: 'center', gap: '6px' }}>
-                        ⚡ Link Active Session
+                        Link Active Session (Recent)
                       </strong>
                       <span style={{ fontSize: '0.78rem', color: 'var(--text-secondary)' }}>
                         Quick connect using the Facebook profile currently active in your browser.
@@ -2203,7 +2091,24 @@ export default function App() {
                     <button
                       onClick={() => {
                         setShowConnectModal(false);
-                        handleFacebookConnect('reauthenticate');
+                        if (demoMode) {
+                          addToast("Mock Facebook Log Out and login triggered.", "success");
+                          handleFacebookConnect('default');
+                          return;
+                        }
+                        if (!window.FB) {
+                          addToast("Meta SDK not loaded. Cannot trigger Facebook log out.", "warning");
+                          handleFacebookConnect('default');
+                          return;
+                        }
+                        try {
+                          window.FB.logout(function(response) {
+                            addToast("Logged out of Facebook browser session. Initiating new login...", "info");
+                            handleFacebookConnect('default');
+                          });
+                        } catch (err) {
+                          handleFacebookConnect('default');
+                        }
                       }}
                       style={{
                         padding: '14px',
@@ -2228,56 +2133,10 @@ export default function App() {
                       }}
                     >
                       <strong style={{ fontSize: '0.9rem', display: 'flex', alignItems: 'center', gap: '6px' }}>
-                        ➕ Confirm Password / Re-authenticate
+                        Add New Account
                       </strong>
                       <span style={{ fontSize: '0.78rem', color: 'var(--text-secondary)' }}>
-                        Forces a password entry prompt to verify or refresh permissions for the current active account.
-                      </span>
-                    </button>
-
-                    <button
-                      onClick={() => {
-                        if (demoMode) {
-                          addToast("Mock Facebook Log Out triggered.", "success");
-                          setShowConnectModal(false);
-                          return;
-                        }
-                        if (!window.FB) {
-                          addToast("Meta SDK not loaded. Cannot trigger Facebook log out.", "warning");
-                          return;
-                        }
-                        window.FB.logout(function(response) {
-                          addToast("Logged out of Facebook browser session successfully. You can now connect a new account.", "success");
-                        });
-                        setShowConnectModal(false);
-                      }}
-                      style={{
-                        padding: '14px',
-                        borderRadius: '12px',
-                        backgroundColor: 'rgba(239, 68, 68, 0.05)',
-                        border: '1px solid rgba(239, 68, 68, 0.2)',
-                        color: 'var(--error)',
-                        textAlign: 'left',
-                        cursor: 'pointer',
-                        transition: 'all 0.2s',
-                        display: 'flex',
-                        flexDirection: 'column',
-                        gap: '4px'
-                      }}
-                      onMouseEnter={(e) => {
-                        e.currentTarget.style.backgroundColor = 'rgba(239, 68, 68, 0.15)';
-                        e.currentTarget.style.borderColor = 'rgba(239, 68, 68, 0.4)';
-                      }}
-                      onMouseLeave={(e) => {
-                        e.currentTarget.style.backgroundColor = 'rgba(239, 68, 68, 0.05)';
-                        e.currentTarget.style.borderColor = 'rgba(239, 68, 68, 0.2)';
-                      }}
-                    >
-                      <strong style={{ fontSize: '0.9rem', display: 'flex', alignItems: 'center', gap: '6px' }}>
-                        🔴 Log Out of Facebook Browser Session
-                      </strong>
-                      <span style={{ fontSize: '0.78rem', color: 'var(--text-secondary)' }}>
-                        Clears your browser session. Use this if you want to switch and connect a different Facebook profile.
+                        Log out of the current active Facebook profile first, so you can connect a completely new account.
                       </span>
                     </button>
                   </div>
@@ -2298,10 +2157,10 @@ export default function App() {
           <div>
             <div className="page-header">
               <div className="header-title">
-                <h1>Cached Media Feed</h1>
-                <p>Visual log of media synchronized from Meta APIs.</p>
+                <h1>ShantiDM Posts & Automations</h1>
+                <p>Configure keyword-triggered comment replies and interactive DMs for specific posts.</p>
               </div>
-              <div className="header-actions">
+              <div className="header-actions" style={{ display: 'flex', gap: '12px' }}>
                 <button 
                   className={`btn btn-primary ${isSyncingPosts ? 'btn-disabled' : ''}`}
                   onClick={handleSyncPosts}
@@ -2330,9 +2189,10 @@ export default function App() {
               </button>
             </div>
 
-            {/* Media Type Filters */}
-            {((postsFilterPlatform === 'instagram' ? posts.length : facebookPosts.length) > 0) && (
-              <div style={{ display: 'flex', gap: '10px', marginBottom: '20px', borderBottom: '1px solid var(--border-color)', paddingBottom: '12px' }}>
+            {/* Media Type & Automation Status Tabs */}
+            <div style={{ display: 'flex', flexWrap: 'wrap', justifyContent: 'space-between', gap: '15px', marginBottom: '20px', borderBottom: '1px solid var(--border-color)', paddingBottom: '12px' }}>
+              {/* Media Type Filter */}
+              <div style={{ display: 'flex', gap: '8px' }}>
                 <button 
                   onClick={() => setPostsFilter('all')}
                   className={`btn ${postsFilter === 'all' ? 'btn-primary' : 'btn-secondary'}`}
@@ -2348,35 +2208,68 @@ export default function App() {
                   Reels / Videos ({postsFilterPlatform === 'instagram' ? posts.filter(p => p.media_type === 'VIDEO').length : facebookPosts.filter(p => p.media_type === 'VIDEO' || p.media_type === 'video').length})
                 </button>
               </div>
-            )}
+
+              {/* Automation Status Tabs */}
+              <div style={{ display: 'flex', gap: '8px' }}>
+                <button 
+                  onClick={() => setPostsAutomationFilter('all')}
+                  className={`btn ${postsAutomationFilter === 'all' ? 'btn-primary' : 'btn-secondary'}`}
+                  style={{ padding: '6px 12px', fontSize: '0.8rem' }}
+                >
+                  All Posts
+                </button>
+                <button 
+                  onClick={() => setPostsAutomationFilter('active')}
+                  className={`btn ${postsAutomationFilter === 'active' ? 'btn-primary' : 'btn-secondary'}`}
+                  style={{ padding: '6px 12px', fontSize: '0.8rem' }}
+                >
+                  Active
+                </button>
+              </div>
+            </div>
 
             {/* Posts Grid */}
-            {(postsFilterPlatform === 'instagram' ? posts : facebookPosts).length === 0 ? (
-              <div className="card" style={{ textAlign: 'center', padding: '48px', color: 'var(--text-secondary)' }}>
-                <p>No cached posts found. Link a {postsFilterPlatform === 'instagram' ? 'Instagram' : 'Facebook'} account and sync.</p>
-              </div>
-            ) : (postsFilterPlatform === 'instagram' ? posts : facebookPosts).filter(post => {
-              const isVideo = post.media_type === 'VIDEO' || post.media_type === 'video';
-              if (postsFilter === 'posts') return !isVideo;
-              if (postsFilter === 'reels') return isVideo;
-              return true;
-            }).length === 0 ? (
-              <div className="card" style={{ textAlign: 'center', padding: '48px', color: 'var(--text-secondary)' }}>
-                <p>No media matching the selected filter.</p>
-              </div>
-            ) : (
-              <div className="posts-grid">
-                {(postsFilterPlatform === 'instagram' ? posts : facebookPosts)
-                  .filter(post => {
+            {(() => {
+              const allItems = postsFilterPlatform === 'instagram' ? posts : facebookPosts;
+              
+              // 1. Filter by Media type
+              let filtered = allItems.filter(post => {
+                const isVideo = post.media_type === 'VIDEO' || post.media_type === 'video';
+                if (postsFilter === 'reels') return isVideo;
+                return true;
+              });
+
+              // 2. Filter by Automation status tab
+              filtered = filtered.filter(post => {
+                const status = post.automation_status || 'setup';
+                if (postsAutomationFilter === 'all') return true;
+                return status === postsAutomationFilter;
+              });
+
+              if (allItems.length === 0) {
+                return (
+                  <div className="card" style={{ textAlign: 'center', padding: '48px', color: 'var(--text-secondary)' }}>
+                    <p>No cached posts found. Link a {postsFilterPlatform === 'instagram' ? 'Instagram' : 'Facebook'} account and sync.</p>
+                  </div>
+                );
+              }
+
+              if (filtered.length === 0) {
+                return (
+                  <div className="card" style={{ textAlign: 'center', padding: '48px', color: 'var(--text-secondary)' }}>
+                    <p>No posts matching the selected tab filters.</p>
+                  </div>
+                );
+              }
+
+              return (
+                <div className="posts-grid">
+                  {filtered.map(post => {
                     const isVideo = post.media_type === 'VIDEO' || post.media_type === 'video';
-                    if (postsFilter === 'posts') return !isVideo;
-                    if (postsFilter === 'reels') return isVideo;
-                    return true;
-                  })
-                  .map(post => {
-                    const isVideo = post.media_type === 'VIDEO' || post.media_type === 'video';
+                    const status = post.automation_status || 'setup';
+                    
                     return (
-                      <div key={post.id} className="card post-card">
+                      <div key={post.id} className="card post-card" style={{ display: 'flex', flexDirection: 'column' }}>
                         <div className="post-media-container" style={{ position: 'relative' }}>
                           {isVideo ? (
                             <video 
@@ -2412,7 +2305,11 @@ export default function App() {
                               No Media Content
                             </div>
                           )}
-                          {isVideo && (
+                          
+                          {/* Automation Status Badge */}
+
+
+                          {isVideo && !post.is_future_post && (
                             <div style={{
                               position: 'absolute',
                               top: '10px',
@@ -2422,30 +2319,73 @@ export default function App() {
                               padding: '4px 8px',
                               borderRadius: '4px',
                               fontSize: '0.7rem',
-                              fontWeight: 'bold',
-                              letterSpacing: '0.05em'
+                              fontWeight: 'bold'
                             }}>
                               VIDEO/REEL
                             </div>
                           )}
                         </div>
-                        <div className="post-info">
-                          <p className="post-caption">{post.caption || "No caption"}</p>
-                          <div className="post-meta" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '10px' }}>
-                            <span>{new Date(post.timestamp).toLocaleDateString()}</span>
+                        <div className="post-info" style={{ flexGrow: 1, display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}>
+                          <div>
+                            <p className="post-caption" style={{ marginBottom: '12px' }}>{post.caption || "No caption"}</p>
+                            
+                            {/* Automation Config Summary */}
+                            {(post.keyword || post.reply_message || post.dm_message) && (
+                              <div style={{ 
+                                backgroundColor: 'rgba(255,255,255,0.02)', 
+                                border: '1px solid var(--border-color)', 
+                                borderRadius: '8px', 
+                                padding: '10px', 
+                                marginBottom: '12px',
+                                fontSize: '0.8rem' 
+                              }}>
+                                {post.keyword && (
+                                  <div style={{ display: 'flex', gap: '6px', marginBottom: '4px' }}>
+                                    <span style={{ color: 'var(--text-secondary)', fontWeight: 'bold' }}>Trigger:</span>
+                                    <span className="badge badge-accent" style={{ fontSize: '0.75rem', padding: '2px 6px' }}>{post.keyword}</span>
+                                  </div>
+                                )}
+                                {post.reply_message && (
+                                  <div style={{ marginBottom: '4px', textOverflow: 'ellipsis', overflow: 'hidden', whiteSpace: 'nowrap' }}>
+                                    <span style={{ color: 'var(--text-secondary)', fontWeight: 'bold' }}>Reply:</span> "{post.reply_message}"
+                                  </div>
+                                )}
+                                {post.dm_message && (
+                                  <div style={{ textOverflow: 'ellipsis', overflow: 'hidden', whiteSpace: 'nowrap' }}>
+                                    <span style={{ color: 'var(--text-secondary)', fontWeight: 'bold' }}>DM:</span> "{post.dm_message.startsWith('{') ? 'Interactive Template' : post.dm_message}"
+                                  </div>
+                                )}
+                              </div>
+                            )}
+                          </div>
+
+                          <div className="post-meta" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 'auto', paddingTop: '10px', borderTop: '1px solid var(--border-color)' }}>
+                            <span style={{ fontSize: '0.75rem' }}>{new Date(post.timestamp).toLocaleDateString()}</span>
                             <div style={{ display: 'flex', gap: '8px' }}>
-                              <button onClick={() => handleOpenComments(post)} className="btn btn-primary" style={{ padding: '4px 10px', fontSize: '0.75rem' }}>
-                                View Comments
+                              {post.permalink && (
+                                <a 
+                                  href={post.permalink} 
+                                  target="_blank" 
+                                  rel="noopener noreferrer" 
+                                  className="btn btn-primary" 
+                                  style={{ padding: '4px 10px', fontSize: '0.75rem', textDecoration: 'none', display: 'inline-flex', alignItems: 'center' }}
+                                >
+                                  Open URL
+                                </a>
+                              )}
+                              <button onClick={() => handleOpenComments(post)} className="btn btn-secondary" style={{ padding: '4px 10px', fontSize: '0.75rem' }}>
+                                Comments
                               </button>
-                              <a href={post.permalink} target="_blank" rel="noopener noreferrer" className="btn btn-secondary" style={{ padding: '4px 10px', fontSize: '0.75rem' }}>Open Url</a>
                             </div>
                           </div>
                         </div>
                       </div>
                     );
                   })}
-              </div>
-            )}
+                </div>
+              );
+            })()}
+
           </div>
         )}
 
@@ -3164,13 +3104,60 @@ export default function App() {
                             {(dmRuleForm.dm_type === 'button_template' || dmRuleForm.dm_type === 'image') && (
                               <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
                                 <label style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>Image URL</label>
-                                <input 
-                                  type="text" 
-                                  className="form-control"
-                                  placeholder="Paste an Unsplash image URL or host link..."
-                                  value={dmRuleForm.image_url}
-                                  onChange={(e) => setDmRuleForm(prev => ({ ...prev, image_url: e.target.value }))}
-                                />
+                                <div style={{ display: 'flex', gap: '8px' }}>
+                                  <input 
+                                    type="text" 
+                                    className="form-control"
+                                    placeholder="Paste an Unsplash image URL or host link..."
+                                    value={dmRuleForm.image_url}
+                                    onChange={(e) => setDmRuleForm(prev => ({ ...prev, image_url: e.target.value }))}
+                                    style={{ flex: 1 }}
+                                  />
+                                  <button
+                                    type="button"
+                                    className="btn btn-secondary"
+                                    style={{ display: 'flex', alignItems: 'center', gap: '4px', whiteSpace: 'nowrap', padding: '6px 12px', fontSize: '0.8rem' }}
+                                    onClick={() => document.getElementById('image-upload-input').click()}
+                                  >
+                                    📤 Upload
+                                  </button>
+                                  <input
+                                    id="image-upload-input"
+                                    type="file"
+                                    accept="image/*"
+                                    style={{ display: 'none' }}
+                                    onChange={async (e) => {
+                                      const file = e.target.files[0];
+                                      if (!file) return;
+                                      
+                                      const formData = new FormData();
+                                      formData.append('file', file);
+                                      
+                                      try {
+                                        addToast("Uploading image...", "info");
+                                        const headers = {};
+                                        if (token) {
+                                          headers['Authorization'] = `Bearer ${token}`;
+                                        }
+                                        const res = await fetch(`${API_BASE}/dm-automation/upload`, {
+                                          method: 'POST',
+                                          headers: headers,
+                                          body: formData
+                                        });
+                                        if (res.ok) {
+                                          const data = await res.json();
+                                          setDmRuleForm(prev => ({ ...prev, image_url: data.url }));
+                                          addToast("Image uploaded successfully!", "success");
+                                        } else {
+                                          const err = await res.json();
+                                          addToast(err.detail || "Failed to upload image.", "error");
+                                        }
+                                      } catch (err) {
+                                        addToast("Error uploading image: " + err.message, "error");
+                                      }
+                                    }}
+                                  />
+                                </div>
                                 <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap', marginTop: '2px' }}>
                                   <button 
                                     type="button" 
@@ -3488,7 +3475,7 @@ export default function App() {
                                 }}>
                                   {dmRuleForm.image_url ? (
                                     <img 
-                                      src={dmRuleForm.image_url} 
+                                      src={ensureAbsoluteUrl(dmRuleForm.image_url)} 
                                       alt="Preview" 
                                       style={{ width: '100%', height: '100%', objectFit: 'cover' }}
                                     />
@@ -3548,7 +3535,7 @@ export default function App() {
                                 flexDirection: 'column'
                               }}>
                                 <img 
-                                  src={dmRuleForm.image_url || 'https://images.unsplash.com/photo-1517841905240-472988babdf9?w=500'} 
+                                  src={dmRuleForm.image_url ? ensureAbsoluteUrl(dmRuleForm.image_url) : 'https://images.unsplash.com/photo-1517841905240-472988babdf9?w=500'} 
                                   alt="Preview" 
                                   style={{ width: '100%', height: 'auto', maxHeight: '180px', objectFit: 'cover' }}
                                 />
@@ -3732,7 +3719,7 @@ export default function App() {
                             <p style={{ fontStyle: 'italic' }}>"{node.config.message}"</p>
                           )}
                           {node.type === 'action_dm' && (
-                            <p style={{ fontStyle: 'italic' }}>"{node.config.message}"</p>
+                            <p style={{ fontStyle: 'italic' }}>{renderDmText(node.config.message)}</p>
                           )}
                           {node.type === 'action_tag' && (
                             <p>Apply Tag: <strong style={{ color: 'var(--warning)' }}>#{node.config.tag}</strong></p>
@@ -4359,7 +4346,7 @@ export default function App() {
                               }}>
                                 {parsed.image_url ? (
                                   <img 
-                                    src={parsed.image_url} 
+                                    src={ensureAbsoluteUrl(parsed.image_url)} 
                                     alt="Preview" 
                                     style={{ width: '100%', height: '100%', objectFit: 'cover' }}
                                   />
@@ -4402,7 +4389,7 @@ export default function App() {
                               flexDirection: 'column'
                             }}>
                               <img 
-                                src={parsed.image_url || 'https://images.unsplash.com/photo-1517841905240-472988babdf9?w=500'} 
+                                src={parsed.image_url ? ensureAbsoluteUrl(parsed.image_url) : 'https://images.unsplash.com/photo-1517841905240-472988babdf9?w=500'} 
                                 alt="Preview" 
                                 style={{ width: '100%', height: 'auto', maxHeight: '180px', objectFit: 'cover' }}
                               />

@@ -33,6 +33,11 @@ class PostBase(BaseModel):
     thumbnail_url: Optional[str] = None
     permalink: Optional[str] = None
     timestamp: Optional[datetime.datetime] = None
+    automation_status: Optional[str] = "setup"
+    keyword: Optional[str] = None
+    reply_message: Optional[str] = None
+    dm_message: Optional[str] = None
+    is_future_post: Optional[bool] = False
 
 
 class PostCreate(PostBase):

@@ -1,0 +1,95 @@
+services:
+  db:
+    image: postgres:15-alpine
+    container_name: commentpilot_db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: admin123
+      POSTGRES_DB: insta_automator
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d insta_automator"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    container_name: commentpilot_redis
+    restart: unless-stopped
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: commentpilot_backend
+    restart: unless-stopped
+    environment:
+      - DATABASE_URL=postgresql+asyncpg://postgres:admin123@db:5432/insta_automator
+      - REDIS_URL=redis://redis:6379/0
+      - JWT_SECRET=supersecretjwtkeychangeinproduction
+      - META_APP_ID=2615280848906423
+      - META_APP_SECRET=a767b315093b446ff70b4bd172ebebb2
+      - META_VERIFY_TOKEN=my_insta_automation_secret_passphrase_2026
+      - META_OAUTH_SCOPES=instagram_basic,instagram_manage_comments,pages_show_list,pages_read_engagement
+      - FIRST_SUPERUSER=admin@insta-automator.com
+      - FIRST_SUPERUSER_PASSWORD=adminpassword123
+    ports:
+      - "8000:8000"
+    volumes:
+      - uploads_data:/app/uploads
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  celery_worker:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: commentpilot_celery_worker
+    command: celery -A app.core.cel_app:celery_app worker --loglevel=info
+    restart: unless-stopped
+    environment:
+      - DATABASE_URL=postgresql+asyncpg://postgres:admin123@db:5432/insta_automator
+      - REDIS_URL=redis://redis:6379/0
+      - JWT_SECRET=supersecretjwtkeychangeinproduction
+      - META_APP_ID=2615280848906423
+      - META_APP_SECRET=a767b315093b446ff70b4bd172ebebb2
+      - META_VERIFY_TOKEN=my_insta_automation_secret_passphrase_2026
+      - META_OAUTH_SCOPES=instagram_basic,instagram_manage_comments,pages_show_list,pages_read_engagement
+      - FIRST_SUPERUSER=admin@insta-automator.com
+      - FIRST_SUPERUSER_PASSWORD=adminpassword123
+    volumes:
+      - uploads_data:/app/uploads
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: commentpilot_frontend
+    restart: unless-stopped
+    ports:
+      - "5173:80"
+    depends_on:
+      - backend
+
+volumes:
+  postgres_data:
+  redis_data:
+  uploads_data:

@@ -1,5 +1,5 @@
 from typing import Any, List, Optional
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 
@@ -83,6 +83,41 @@ async def create_dm_automation(
     await db.commit()
     await db.refresh(aut)
     return aut
+
+
+@router.post("/upload")
+async def upload_media(
+    request: Request,
+    file: UploadFile = File(...),
+    current_user: User = Depends(deps.get_current_user)
+) -> Any:
+    """Upload media file for button template or image response."""
+    import os
+    import uuid
+    import shutil
+
+    # Ensure upload directory exists
+    current_dir = os.path.dirname(os.path.abspath(__file__))
+    for _ in range(4):
+        current_dir = os.path.dirname(current_dir)
+    uploads_dir = os.path.join(current_dir, "uploads")
+    os.makedirs(uploads_dir, exist_ok=True)
+
+    # Generate a unique file name
+    file_ext = os.path.splitext(file.filename)[1]
+    filename = f"{uuid.uuid4()}{file_ext}"
+    file_path = os.path.join(uploads_dir, filename)
+
+    # Save file
+    with open(file_path, "wb") as buffer:
+        shutil.copyfileobj(file.file, buffer)
+
+    # Get base URL of backend
+    base_url = str(request.base_url)
+    
+    # Return file url
+    file_url = f"{base_url}uploads/{filename}"
+    return {"url": file_url}
 
 
 @router.put("/{id}", response_model=DMAutomationSchema)
@@ -234,3 +269,4 @@ async def read_dm_executions(
         .order_by(dm_automation_execution_repo.model.executed_at.desc())
     )
     return res.scalars().all()
+
