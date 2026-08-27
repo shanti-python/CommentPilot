@@ -335,10 +335,10 @@ class MetaClient:
         return res.get("data", [])
 
     async def get_instagram_comments(self, media_id: str, page_access_token: str) -> List[Dict[str, Any]]:
-        """Fetch comments for a specific Instagram post/media."""
+        """Fetch comments for a specific Instagram post/media, including nested replies."""
         logger.info(f"Fetching comments for Instagram Media {media_id}")
         params = {
-            "fields": "id,text,username,timestamp,parent_id,from",
+            "fields": "id,text,username,timestamp,parent_id,from,replies{id,text,username,timestamp,from,parent_id}",
             "access_token": page_access_token
         }
         if page_access_token == "mock_page_token" or str(page_access_token).startswith("mock"):
@@ -372,6 +372,19 @@ class MetaClient:
                     "parent_id": comment.get("parent_id"),
                     "commenter_id": from_data.get("id")
                 })
+                
+                # Fetch and parse nested comment replies
+                replies_data = comment.get("replies", {}).get("data", [])
+                for reply in replies_data:
+                    r_from = reply.get("from", {})
+                    comments_data.append({
+                        "id": reply["id"],
+                        "text": reply.get("text", ""),
+                        "username": reply.get("username") or r_from.get("username", "anonymous"),
+                        "timestamp": reply.get("timestamp"),
+                        "parent_id": comment["id"],
+                        "commenter_id": r_from.get("id")
+                    })
             return comments_data
         except MetaAPIError as e:
             logger.warning(f"Failed to fetch comments from Meta API: {e.message}")
@@ -494,10 +507,10 @@ class MetaClient:
             return []
 
     async def get_facebook_comments(self, post_id: str, page_access_token: str) -> List[Dict[str, Any]]:
-        """Fetch comments for a specific Facebook post."""
+        """Fetch comments for a specific Facebook post, including nested replies."""
         logger.info(f"Fetching comments for Facebook Post {post_id}")
         params = {
-            "fields": "id,message,from,created_time,parent",
+            "fields": "id,message,from,created_time,parent,comments{id,message,from,created_time,parent}",
             "access_token": page_access_token
         }
         try:
@@ -513,6 +526,19 @@ class MetaClient:
                     "parent_id": comment.get("parent", {}).get("id") if comment.get("parent") else None,
                     "commenter_id": from_data.get("id")
                 })
+                
+                # Fetch and parse nested comment replies (comments connection on Facebook comments)
+                sub_comments = comment.get("comments", {}).get("data", [])
+                for sub in sub_comments:
+                    sub_from = sub.get("from", {})
+                    comments_data.append({
+                        "id": sub["id"],
+                        "text": sub.get("message", ""),
+                        "username": sub_from.get("name", sub_from.get("username", "anonymous")),
+                        "timestamp": sub.get("created_time"),
+                        "parent_id": comment["id"],
+                        "commenter_id": sub_from.get("id")
+                    })
             return comments_data
         except MetaAPIError as e:
             logger.warning(f"Failed to fetch Facebook comments from Meta API: {e.message}")

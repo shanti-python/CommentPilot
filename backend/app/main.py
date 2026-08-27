@@ -30,6 +30,8 @@ async def lifespan(app: FastAPI):
         # Ensure posts table has thumbnail_url column
         from sqlalchemy import text
         await conn.execute(text("ALTER TABLE posts ADD COLUMN IF NOT EXISTS thumbnail_url TEXT;"))
+        await conn.execute(text("ALTER TABLE automation_flows ADD COLUMN IF NOT EXISTS instagram_post_id VARCHAR;"))
+        await conn.execute(text("ALTER TABLE automation_flows ADD COLUMN IF NOT EXISTS facebook_post_id VARCHAR;"))
         
     logger.info("Database tables initialized successfully.")
     

@@ -51,6 +51,7 @@ class FacebookPost(Base):
     
     facebook_account = relationship("FacebookAccount", back_populates="posts")
     comments = relationship("FacebookComment", back_populates="post", cascade="all, delete-orphan")
+    flows = relationship("AutomationFlow", back_populates="facebook_post", cascade="all, delete-orphan")
 
 
 class FacebookComment(Base):

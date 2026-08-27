@@ -11,6 +11,8 @@ class AutomationFlow(Base):
     id = Column(String(36), primary_key=True, default=generate_uuid)
     instagram_account_id = Column(Integer, ForeignKey("instagram_accounts.id", ondelete="CASCADE"), nullable=True)
     facebook_account_id = Column(Integer, ForeignKey("facebook_accounts.id", ondelete="CASCADE"), nullable=True)
+    instagram_post_id = Column(String, ForeignKey("posts.id", ondelete="CASCADE"), nullable=True)
+    facebook_post_id = Column(String, ForeignKey("facebook_posts.id", ondelete="CASCADE"), nullable=True)
     name = Column(String, nullable=False)
     is_active = Column(Boolean, default=True)
     created_at = Column(DateTime, default=datetime.datetime.utcnow)
@@ -18,6 +20,8 @@ class AutomationFlow(Base):
 
     instagram_account = relationship("InstagramAccount", back_populates="flows")
     facebook_account = relationship("FacebookAccount", back_populates="flows")
+    instagram_post = relationship("Post", back_populates="flows")
+    facebook_post = relationship("FacebookPost", back_populates="flows")
     nodes = relationship("FlowNode", back_populates="flow", cascade="all, delete-orphan", lazy="selectin")
     edges = relationship("FlowEdge", back_populates="flow", cascade="all, delete-orphan", lazy="selectin")
 

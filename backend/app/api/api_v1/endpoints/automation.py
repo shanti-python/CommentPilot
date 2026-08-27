@@ -537,6 +537,8 @@ async def create_flow(
     flow = await automation_flow_repo.create(db, obj_in={
         "instagram_account_id": flow_in.instagram_account_id,
         "facebook_account_id": flow_in.facebook_account_id,
+        "instagram_post_id": flow_in.instagram_post_id,
+        "facebook_post_id": flow_in.facebook_post_id,
         "name": flow_in.name,
         "is_active": flow_in.is_active
     })
@@ -603,6 +605,10 @@ async def update_flow(
         update_data["instagram_account_id"] = flow_in.instagram_account_id
     if "facebook_account_id" in flow_in.model_fields_set:
         update_data["facebook_account_id"] = flow_in.facebook_account_id
+    if "instagram_post_id" in flow_in.model_fields_set:
+        update_data["instagram_post_id"] = flow_in.instagram_post_id
+    if "facebook_post_id" in flow_in.model_fields_set:
+        update_data["facebook_post_id"] = flow_in.facebook_post_id
         
     if update_data:
         await automation_flow_repo.update(db, db_obj=flow, obj_in=update_data)

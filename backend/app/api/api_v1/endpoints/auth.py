@@ -9,6 +9,7 @@ from app.core import security
 from app.core.config import settings
 from app.api import deps
 from app.db.repository import user_repo, instagram_account_repo, facebook_account_repo, post_repo, facebook_post_repo
+from app.utils.text import parse_iso_timestamp
 from app.schemas.user import Token, UserCreate
 from app.schemas.instagram import MetaOAuthPayload, InstagramAccount as InstagramAccountSchema
 from app.schemas.facebook import FacebookAccount as FacebookAccountSchema
@@ -139,17 +140,7 @@ async def facebook_connect(
                 for post in posts_data:
                     existing_post = await post_repo.get(db, post["id"])
                     
-                    # Parse timestamp if it is a string
-                    ts_val = post.get("timestamp")
-                    if isinstance(ts_val, str):
-                        if ts_val.endswith("Z"):
-                            ts_val = ts_val[:-1] + "+00:00"
-                        try:
-                            ts_val = datetime.fromisoformat(ts_val)
-                            if ts_val.tzinfo is not None:
-                                ts_val = ts_val.astimezone(datetime.timezone.utc).replace(tzinfo=None)
-                        except ValueError:
-                            ts_val = None
+                    ts_val = parse_iso_timestamp(post.get("timestamp"))
 
                     post_in = {
                         "id": post["id"],
@@ -247,17 +238,7 @@ async def facebook_connect_page(
                 for post in posts_data:
                     existing_post = await facebook_post_repo.get(db, post["id"])
                     
-                    # Parse timestamp if it is a string
-                    ts_val = post.get("timestamp")
-                    if isinstance(ts_val, str):
-                        if ts_val.endswith("Z"):
-                            ts_val = ts_val[:-1] + "+00:00"
-                        try:
-                            ts_val = datetime.fromisoformat(ts_val)
-                            if ts_val.tzinfo is not None:
-                                ts_val = ts_val.astimezone(datetime.timezone.utc).replace(tzinfo=None)
-                        except ValueError:
-                            ts_val = None
+                    ts_val = parse_iso_timestamp(post.get("timestamp"))
 
                     post_in = {
                         "id": post["id"],

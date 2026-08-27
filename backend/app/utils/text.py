@@ -47,3 +47,26 @@ def contains_keyword(comment_text: str, keyword: str, exact_word: bool = True) -
     else:
         # Match as substring
         return norm_keyword in norm_comment
+
+
+from datetime import datetime, timezone
+from typing import Optional, Any
+
+def parse_iso_timestamp(ts_val: Any) -> Optional[datetime]:
+    """
+    Parse ISO 8601 timestamps returned by Meta APIs, handling Z suffixes
+    and lack of timezone colons in older Python versions.
+    """
+    if not isinstance(ts_val, str):
+        return None
+    if ts_val.endswith("Z"):
+        ts_val = ts_val[:-1] + "+00:00"
+    # Convert +HHMM or -HHMM timezone offsets to +HH:MM format for Python <= 3.10
+    ts_val = re.sub(r'([+-]\d{2})(\d{2})$', r'\1:\2', ts_val)
+    try:
+        dt = datetime.fromisoformat(ts_val)
+        if dt.tzinfo is not None:
+            dt = dt.astimezone(timezone.utc).replace(tzinfo=None)
+        return dt
+    except ValueError:
+        return None

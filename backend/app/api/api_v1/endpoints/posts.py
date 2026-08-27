@@ -6,6 +6,7 @@ from sqlalchemy import select
 
 from app.api import deps
 from app.db.repository import post_repo, instagram_account_repo, facebook_post_repo, facebook_account_repo, facebook_comment_repo
+from app.utils.text import parse_iso_timestamp
 from app.schemas.instagram import Post as PostSchema
 from app.schemas.facebook import FacebookPost as FacebookPostSchema, FacebookComment as FacebookCommentSchema
 from app.models.instagram import Post
@@ -73,16 +74,7 @@ async def sync_posts(
             for post in posts_data:
                 existing_post = await post_repo.get(db, post["id"])
                 
-                ts_val = post.get("timestamp")
-                if isinstance(ts_val, str):
-                    if ts_val.endswith("Z"):
-                        ts_val = ts_val[:-1] + "+00:00"
-                    try:
-                        ts_val = datetime.fromisoformat(ts_val)
-                        if ts_val.tzinfo is not None:
-                            ts_val = ts_val.astimezone(datetime.timezone.utc).replace(tzinfo=None)
-                    except ValueError:
-                        ts_val = None
+                ts_val = parse_iso_timestamp(post.get("timestamp"))
 
                 post_in = {
                     "id": post["id"],
@@ -147,18 +139,7 @@ async def read_post_comments(
         for mc in meta_comments:
             existing_comment = await comment_repo.get(db, id=mc["id"])
             
-            ts_val = mc.get("timestamp")
-            if isinstance(ts_val, str):
-                if ts_val.endswith("Z"):
-                    ts_val = ts_val[:-1] + "+00:00"
-                try:
-                    ts_val = datetime.fromisoformat(ts_val)
-                    if ts_val.tzinfo is not None:
-                        ts_val = ts_val.astimezone(datetime.timezone.utc).replace(tzinfo=None)
-                except ValueError:
-                    ts_val = datetime.utcnow()
-            else:
-                ts_val = datetime.utcnow()
+            ts_val = parse_iso_timestamp(mc.get("timestamp")) or datetime.utcnow()
 
             comment_in = {
                 "id": mc["id"],
@@ -370,16 +351,7 @@ async def sync_facebook_posts(
             for post in posts_data:
                 existing_post = await facebook_post_repo.get(db, post["id"])
                 
-                ts_val = post.get("timestamp")
-                if isinstance(ts_val, str):
-                    if ts_val.endswith("Z"):
-                        ts_val = ts_val[:-1] + "+00:00"
-                    try:
-                        ts_val = datetime.fromisoformat(ts_val)
-                        if ts_val.tzinfo is not None:
-                            ts_val = ts_val.astimezone(datetime.timezone.utc).replace(tzinfo=None)
-                    except ValueError:
-                        ts_val = None
+                ts_val = parse_iso_timestamp(post.get("timestamp"))
 
                 post_in = {
                     "id": post["id"],
@@ -431,18 +403,7 @@ async def read_facebook_post_comments(
         for mc in meta_comments:
             existing_comment = await facebook_comment_repo.get(db, id=mc["id"])
             
-            ts_val = mc.get("timestamp")
-            if isinstance(ts_val, str):
-                if ts_val.endswith("Z"):
-                    ts_val = ts_val[:-1] + "+00:00"
-                try:
-                    ts_val = datetime.fromisoformat(ts_val)
-                    if ts_val.tzinfo is not None:
-                        ts_val = ts_val.astimezone(datetime.timezone.utc).replace(tzinfo=None)
-                except ValueError:
-                    ts_val = datetime.utcnow()
-            else:
-                ts_val = datetime.utcnow()
+            ts_val = parse_iso_timestamp(mc.get("timestamp")) or datetime.utcnow()
 
             comment_in = {
                 "id": mc["id"],

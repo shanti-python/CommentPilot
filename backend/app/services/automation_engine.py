@@ -153,33 +153,47 @@ class AutomationEngine:
             success = True
             
             if node.type == "action_reply":
-                template = node.config.get("message", "Hi {{username}}!")
+                template = node.config.get("message") or "@{{username}} Link sent! Check your messages 📩"
                 reply_text = await self._replace_placeholders(template)
                 try:
-                    reply_id = await meta_client.reply_to_comment(
-                        page_access_token=self.account.page_access_token,
-                        comment_id=self.comment_event.comment_id,
-                        message=reply_text
-                    )
+                    from sqlalchemy import select
+                    from app.models.instagram import Comment
+                    from app.models.facebook import FacebookComment
+                    
+                    Model = FacebookComment if self.is_facebook else Comment
+                    stmt = select(Model).filter(Model.parent_id == self.comment_event.comment_id)
+                    res = await self.db.execute(stmt)
+                    existing_reply = res.scalars().first()
+                    
+                    if existing_reply:
+                        logger.info(f"Comment {self.comment_event.comment_id} has already been replied to (reply id {existing_reply.id}). Skipping API reply call.")
+                        reply_id = existing_reply.id
+                    else:
+                        reply_id = await meta_client.reply_to_comment(
+                            page_access_token=self.account.page_access_token,
+                            comment_id=self.comment_event.comment_id,
+                            message=reply_text
+                        )
+                        try:
+                            repo_to_use = facebook_comment_repo if self.is_facebook else comment_repo
+                            await repo_to_use.create(self.db, obj_in={
+                                "id": reply_id or f"bot_reply_{int(datetime.datetime.utcnow().timestamp())}",
+                                "media_id": self.comment_event.media_id,
+                                "text": reply_text,
+                                "username": self.account.username,
+                                "timestamp": datetime.datetime.utcnow(),
+                                "parent_id": self.comment_event.comment_id
+                            })
+                            await self.db.commit()
+                        except Exception as ex:
+                            logger.warning(f"Could not cache automated reply in comments table: {str(ex)}")
+
                     await self.log_step(
                         flow_id=flow.id,
                         action_type="reply_sent",
                         status="success",
                         details={"reply_id": reply_id, "text": reply_text}
                     )
-                    try:
-                        repo_to_use = facebook_comment_repo if self.is_facebook else comment_repo
-                        await repo_to_use.create(self.db, obj_in={
-                            "id": reply_id or f"bot_reply_{int(datetime.datetime.utcnow().timestamp())}",
-                            "media_id": self.comment_event.media_id,
-                            "text": reply_text,
-                            "username": self.account.username,
-                            "timestamp": datetime.datetime.utcnow(),
-                            "parent_id": self.comment_event.comment_id
-                        })
-                        await self.db.commit()
-                    except Exception as ex:
-                        logger.warning(f"Could not cache automated reply in comments table: {str(ex)}")
                 except MetaAPIError as e:
                     success = False
                     await self.log_step(

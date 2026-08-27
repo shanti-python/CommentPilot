@@ -121,36 +121,44 @@ class CommentProcessorService:
                 
                 # 1. Reply to comment if message set
                 if post.reply_message:
-                    replacements = {
-                        "username": username,
-                        "comment_text": text,
-                        "post_id": media_id,
-                        "comment_id": comment_id
-                    }
-                    reply_text = post.reply_message
-                    for k, v in replacements.items():
-                        reply_text = re.sub(r'(?i)\{\{\s*' + re.escape(k) + r'\s*\}\}', str(v), reply_text)
-                    try:
-                        reply_id = await meta_client.reply_to_comment(
-                            page_access_token=account.page_access_token,
-                            comment_id=comment_id,
-                            message=reply_text
-                        )
-                        logger.info(f"Sent post-specific reply: {reply_id}")
+                    from sqlalchemy import select
+                    from app.models.instagram import Comment
+                    
+                    stmt = select(Comment).filter(Comment.parent_id == comment_id)
+                    res = await db.execute(stmt)
+                    if res.scalars().first():
+                        logger.info(f"Comment {comment_id} has already been replied to. Skipping post-specific reply.")
+                    else:
+                        replacements = {
+                            "username": username,
+                            "comment_text": text,
+                            "post_id": media_id,
+                            "comment_id": comment_id
+                        }
+                        reply_text = post.reply_message
+                        for k, v in replacements.items():
+                            reply_text = re.sub(r'(?i)\{\{\s*' + re.escape(k) + r'\s*\}\}', str(v), reply_text)
                         try:
-                            await comment_repo.create(db, obj_in={
-                                "id": reply_id or f"post_reply_{int(datetime.datetime.utcnow().timestamp())}",
-                                "media_id": media_id,
-                                "text": reply_text,
-                                "username": account.username,
-                                "timestamp": datetime.datetime.utcnow(),
-                                "parent_id": comment_id
-                            })
-                            await db.commit()
-                        except Exception as cache_ex:
-                            logger.warning(f"Could not cache post-specific reply: {str(cache_ex)}")
-                    except Exception as e_reply:
-                        logger.error(f"Failed to send post-specific reply: {str(e_reply)}")
+                            reply_id = await meta_client.reply_to_comment(
+                                page_access_token=account.page_access_token,
+                                comment_id=comment_id,
+                                message=reply_text
+                            )
+                            logger.info(f"Sent post-specific reply: {reply_id}")
+                            try:
+                                await comment_repo.create(db, obj_in={
+                                    "id": reply_id or f"post_reply_{int(datetime.datetime.utcnow().timestamp())}",
+                                    "media_id": media_id,
+                                    "text": reply_text,
+                                    "username": account.username,
+                                    "timestamp": datetime.datetime.utcnow(),
+                                    "parent_id": comment_id
+                                })
+                                await db.commit()
+                            except Exception as cache_ex:
+                                logger.warning(f"Could not cache post-specific reply: {str(cache_ex)}")
+                        except Exception as e_reply:
+                            logger.error(f"Failed to send post-specific reply: {str(e_reply)}")
                 
                 # 2. Send DM if message set
                 if post.dm_message:
@@ -211,6 +219,13 @@ class CommentProcessorService:
         active_flows = await automation_flow_repo.get_active_by_instagram_account_id(db, account.id)
         if target_flow_id:
             active_flows = [f for f in active_flows if f.id == target_flow_id]
+        else:
+            # Filter active flows: prefer post-specific flows, fallback to general ones
+            post_specific_flows = [f for f in active_flows if f.instagram_post_id == media_id]
+            if post_specific_flows:
+                active_flows = post_specific_flows
+            else:
+                active_flows = [f for f in active_flows if f.instagram_post_id is None]
         
         matched_any_flow = False
         flows_to_run = []
@@ -365,36 +380,44 @@ class CommentProcessorService:
                 
                 # 1. Reply to comment if message set
                 if post.reply_message:
-                    replacements = {
-                        "username": username,
-                        "comment_text": text,
-                        "post_id": media_id,
-                        "comment_id": comment_id
-                    }
-                    reply_text = post.reply_message
-                    for k, v in replacements.items():
-                        reply_text = re.sub(r'(?i)\{\{\s*' + re.escape(k) + r'\s*\}\}', str(v), reply_text)
-                    try:
-                        reply_id = await meta_client.reply_to_comment(
-                            page_access_token=account.page_access_token,
-                            comment_id=comment_id,
-                            message=reply_text
-                        )
-                        logger.info(f"Sent post-specific Facebook reply: {reply_id}")
+                    from sqlalchemy import select
+                    from app.models.facebook import FacebookComment
+                    
+                    stmt = select(FacebookComment).filter(FacebookComment.parent_id == comment_id)
+                    res = await db.execute(stmt)
+                    if res.scalars().first():
+                        logger.info(f"Facebook comment {comment_id} has already been replied to. Skipping post-specific Facebook reply.")
+                    else:
+                        replacements = {
+                            "username": username,
+                            "comment_text": text,
+                            "post_id": media_id,
+                            "comment_id": comment_id
+                        }
+                        reply_text = post.reply_message
+                        for k, v in replacements.items():
+                            reply_text = re.sub(r'(?i)\{\{\s*' + re.escape(k) + r'\s*\}\}', str(v), reply_text)
                         try:
-                            await facebook_comment_repo.create(db, obj_in={
-                                "id": reply_id or f"fb_post_reply_{int(datetime.datetime.utcnow().timestamp())}",
-                                "media_id": media_id,
-                                "text": reply_text,
-                                "username": account.name or account.username,
-                                "timestamp": datetime.datetime.utcnow(),
-                                "parent_id": comment_id
-                            })
-                            await db.commit()
-                        except Exception as cache_ex:
-                            logger.warning(f"Could not cache post-specific Facebook reply: {str(cache_ex)}")
-                    except Exception as e_reply:
-                        logger.error(f"Failed to send post-specific Facebook reply: {str(e_reply)}")
+                            reply_id = await meta_client.reply_to_comment(
+                                page_access_token=account.page_access_token,
+                                comment_id=comment_id,
+                                message=reply_text
+                            )
+                            logger.info(f"Sent post-specific Facebook reply: {reply_id}")
+                            try:
+                                await facebook_comment_repo.create(db, obj_in={
+                                    "id": reply_id or f"fb_post_reply_{int(datetime.datetime.utcnow().timestamp())}",
+                                    "media_id": media_id,
+                                    "text": reply_text,
+                                    "username": account.name or account.username,
+                                    "timestamp": datetime.datetime.utcnow(),
+                                    "parent_id": comment_id
+                                })
+                                await db.commit()
+                            except Exception as cache_ex:
+                                logger.warning(f"Could not cache post-specific Facebook reply: {str(cache_ex)}")
+                        except Exception as e_reply:
+                            logger.error(f"Failed to send post-specific Facebook reply: {str(e_reply)}")
                 
                 # 2. Send DM via private comment reply if message set
                 if post.dm_message:
@@ -450,6 +473,13 @@ class CommentProcessorService:
         active_flows = await automation_flow_repo.get_active_by_facebook_account_id(db, account.id)
         if target_flow_id:
             active_flows = [f for f in active_flows if f.id == target_flow_id]
+        else:
+            # Filter active flows: prefer post-specific flows, fallback to general ones
+            post_specific_flows = [f for f in active_flows if f.facebook_post_id == media_id]
+            if post_specific_flows:
+                active_flows = post_specific_flows
+            else:
+                active_flows = [f for f in active_flows if f.facebook_post_id is None]
         
         matched_any_flow = False
         flows_to_run = []

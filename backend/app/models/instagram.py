@@ -59,6 +59,7 @@ class Post(Base):
     
     instagram_account = relationship("InstagramAccount", back_populates="posts")
     comments = relationship("Comment", back_populates="post", cascade="all, delete-orphan")
+    flows = relationship("AutomationFlow", back_populates="instagram_post", cascade="all, delete-orphan")
 
 
 class Comment(Base):
