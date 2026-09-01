@@ -478,6 +478,10 @@ export default function App() {
   const [isSyncingPosts, setIsSyncingPosts] = useState(false);
   const [postsFilter, setPostsFilter] = useState("all"); // "all", "posts", "reels"
   const [postsAutomationFilter, setPostsAutomationFilter] = useState("all"); // "all", "active", "setup", "paused"
+  const [selectedLogPostId, setSelectedLogPostId] = useState("all"); // "all" or specific post ID
+  const [isLogPostPickerOpen, setIsLogPostPickerOpen] = useState(false);
+  const [logPostSearchTerm, setLogPostSearchTerm] = useState("");
+  const [logPostFilterTab, setLogPostFilterTab] = useState("activity"); // "activity" (only posts with logs/flows) or "all"
   const [showFuturePostModal, setShowFuturePostModal] = useState(false);
   const [futurePostForm, setFuturePostForm] = useState({
     instagram_account_id: '',
@@ -4028,101 +4032,510 @@ export default function App() {
         )}
 
         {/* Tab 6: Execution Logs */}
-        {activeTab === 'logs' && (
-          <div>
-            <div className="page-header">
-              <div className="header-title">
-                <h1>Automation Engine Execution Logs</h1>
-                <p>Auditable trail of keyword triggers, public replies, DMs and tags.</p>
-              </div>
-            </div>
+        {activeTab === 'logs' && (() => {
+          const allAvailablePosts = [
+            ...posts.map(p => ({ ...p, platform: 'instagram', platformName: 'Instagram' })),
+            ...facebookPosts.map(p => ({ ...p, platform: 'facebook', platformName: 'Facebook' }))
+          ].sort((a, b) => (b.timestamp ? new Date(b.timestamp).getTime() : 0) - (a.timestamp ? new Date(a.timestamp).getTime() : 0));
 
-            <div className="card">
-              <div className="table-container">
-                <table>
-                  <thead>
-                    <tr>
-                      <th>Timestamp</th>
-                      <th>Comment ID</th>
-                      <th>Action Executed</th>
-                      <th>Status</th>
-                      <th>Parameters / Response</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {logs.map(log => (
-                      <tr key={log.id}>
-                        <td>{new Date(log.created_at || Date.now()).toLocaleString()}</td>
-                        <td>
-                          <div style={{ display: 'flex', flexDirection: 'column' }}>
-                            <code>{log.comment_id}</code>
-                            {(() => {
-                              const matchedFlow = flows.find(f => f.id === log.flow_id);
-                              const isFb = matchedFlow ? !!matchedFlow.facebook_account_id : log.comment_id?.startsWith('fb_');
-                              return (
-                                <span className={`badge ${isFb ? 'badge-primary' : 'badge-success'}`} style={{ alignSelf: 'flex-start', fontSize: '0.65rem', padding: '1px 6px', marginTop: '4px' }}>
-                                  {isFb ? 'Facebook' : 'Instagram'}
+          const getLogPostInfo = (log) => {
+            const comment = comments.find(c => c.comment_id === log.comment_id);
+            let postId = comment?.media_id || log.details?.media_id || log.details?.post_id;
+
+            if (!postId && log.flow_id) {
+              const flow = flows.find(f => f.id === log.flow_id);
+              if (flow) {
+                postId = flow.instagram_post_id || flow.facebook_post_id;
+              }
+            }
+
+            if (!postId) return null;
+
+            const igPost = posts.find(p => p.id === postId);
+            if (igPost) {
+              return {
+                postId: igPost.id,
+                caption: igPost.caption,
+                mediaUrl: igPost.media_url || igPost.thumbnail_url,
+                permalink: igPost.permalink,
+                platform: 'instagram',
+                platformName: 'Instagram',
+                account: accounts.find(a => a.id === igPost.instagram_account_id)
+              };
+            }
+            const fbPost = facebookPosts.find(p => p.id === postId);
+            if (fbPost) {
+              return {
+                postId: fbPost.id,
+                caption: fbPost.caption,
+                mediaUrl: fbPost.media_url,
+                permalink: fbPost.permalink,
+                platform: 'facebook',
+                platformName: 'Facebook',
+                account: facebookAccounts.find(a => a.id === fbPost.facebook_account_id)
+              };
+            }
+
+            return {
+              postId: postId,
+              caption: null,
+              mediaUrl: null,
+              permalink: null,
+              platform: log.comment_id?.startsWith('fb_') ? 'facebook' : 'instagram',
+              platformName: log.comment_id?.startsWith('fb_') ? 'Facebook' : 'Instagram',
+              account: null
+            };
+          };
+
+          const activeLogPostIds = new Set();
+          logs.forEach(log => {
+            const info = getLogPostInfo(log);
+            if (info && info.postId) {
+              activeLogPostIds.add(info.postId);
+            }
+          });
+          flows.forEach(flow => {
+            if (flow.instagram_post_id) activeLogPostIds.add(flow.instagram_post_id);
+            if (flow.facebook_post_id) activeLogPostIds.add(flow.facebook_post_id);
+          });
+
+          const postsWithActivity = allAvailablePosts.filter(p => activeLogPostIds.has(p.id));
+
+          const filteredLogs = logs.filter(log => {
+            if (selectedLogPostId === 'all') return true;
+            const logPost = getLogPostInfo(log);
+            return logPost && logPost.postId === selectedLogPostId;
+          });
+
+          const selectedPostObj = allAvailablePosts.find(p => p.id === selectedLogPostId);
+
+          const basePostsList = (logPostFilterTab === 'activity' && postsWithActivity.length > 0)
+            ? postsWithActivity
+            : allAvailablePosts;
+
+          const searchedPosts = basePostsList.filter(p => {
+            if (!logPostSearchTerm) return true;
+            const query = logPostSearchTerm.toLowerCase();
+            return (
+              (p.caption && p.caption.toLowerCase().includes(query)) ||
+              (p.id && p.id.toLowerCase().includes(query)) ||
+              (p.platform && p.platform.toLowerCase().includes(query))
+            );
+          });
+
+          return (
+            <div>
+              <div className="page-header" style={{ alignItems: 'flex-start', flexWrap: 'wrap', gap: '16px' }}>
+                <div className="header-title" style={{ flex: 1, minWidth: '280px' }}>
+                  <h1>Automation Engine Execution Logs</h1>
+                  <p>Auditable trail of keyword triggers, public replies, DMs and tags per post.</p>
+                </div>
+                <div className="header-actions" style={{ position: 'relative' }}>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                    <label style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', fontWeight: '600', letterSpacing: '0.5px' }}>
+                      📌 FILTER LOGS BY POST / REEL:
+                    </label>
+                    
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                      {/* Custom Dropdown Trigger Button */}
+                      <button
+                        type="button"
+                        onClick={() => setIsLogPostPickerOpen(!isLogPostPickerOpen)}
+                        style={{
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: '10px',
+                          backgroundColor: 'rgba(30, 41, 59, 0.9)',
+                          border: isLogPostPickerOpen ? '1px solid #6366f1' : '1px solid rgba(99, 102, 241, 0.35)',
+                          borderRadius: '10px',
+                          padding: '8px 14px',
+                          color: 'white',
+                          fontSize: '0.85rem',
+                          cursor: 'pointer',
+                          width: '340px',
+                          maxWidth: '100%',
+                          justifyContent: 'space-between',
+                          boxShadow: '0 4px 12px rgba(0,0,0,0.2)',
+                          transition: 'all 0.2s ease'
+                        }}
+                      >
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '10px', minWidth: 0, flex: 1 }}>
+                          {selectedLogPostId === 'all' ? (
+                            <>
+                              <span style={{ fontSize: '1.1rem', flexShrink: 0 }}>🌐</span>
+                              <span style={{ fontWeight: '600', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                                All Posts & Reels ({logs.length} logs)
+                              </span>
+                            </>
+                          ) : (
+                            <>
+                              {selectedPostObj?.media_url || selectedPostObj?.thumbnail_url ? (
+                                <img 
+                                  src={selectedPostObj.media_url || selectedPostObj.thumbnail_url} 
+                                  alt="Thumb" 
+                                  style={{ width: '26px', height: '26px', objectFit: 'cover', borderRadius: '5px', flexShrink: 0 }}
+                                  onError={(e) => { e.target.style.display = 'none'; }}
+                                />
+                              ) : (
+                                <span className={`badge ${selectedPostObj?.platform === 'facebook' ? 'badge-primary' : 'badge-success'}`} style={{ fontSize: '0.65rem', padding: '2px 6px', flexShrink: 0 }}>
+                                  {selectedPostObj?.platform === 'facebook' ? 'Facebook' : 'Instagram'}
                                 </span>
-                              );
-                            })()}
+                              )}
+                              <span style={{ fontWeight: '500', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', fontSize: '0.82rem' }}>
+                                {selectedPostObj?.caption ? (selectedPostObj.caption.slice(0, 32) + "...") : `Post ID: ${selectedLogPostId}`}
+                              </span>
+                            </>
+                          )}
+                        </div>
+                        <span style={{ fontSize: '0.75rem', color: '#9ca3af', flexShrink: 0, marginLeft: '6px' }}>
+                          {isLogPostPickerOpen ? '▲' : '▼'}
+                        </span>
+                      </button>
+
+                      {selectedLogPostId !== 'all' && (
+                        <button 
+                          className="btn btn-secondary" 
+                          style={{ fontSize: '0.78rem', padding: '8px 12px', whiteSpace: 'nowrap', backgroundColor: 'rgba(255,255,255,0.06)' }}
+                          onClick={() => {
+                            setSelectedLogPostId('all');
+                            setIsLogPostPickerOpen(false);
+                          }}
+                          title="Reset to view logs for all posts"
+                        >
+                          Clear Filter
+                        </button>
+                      )}
+                    </div>
+
+                    {/* Custom Dropdown Popup */}
+                    {isLogPostPickerOpen && (
+                      <div 
+                        style={{
+                          position: 'absolute',
+                          top: 'calc(100% + 6px)',
+                          right: 0,
+                          width: '400px',
+                          maxWidth: '90vw',
+                          backgroundColor: '#0f172a',
+                          border: '1px solid rgba(99, 102, 241, 0.4)',
+                          borderRadius: '14px',
+                          boxShadow: '0 20px 40px rgba(0, 0, 0, 0.7)',
+                          zIndex: 1000,
+                          overflow: 'hidden',
+                          display: 'flex',
+                          flexDirection: 'column'
+                        }}
+                      >
+                        {/* Search Header inside popup */}
+                        <div style={{ padding: '10px 12px', borderBottom: '1px solid rgba(255,255,255,0.08)', backgroundColor: '#1e293b' }}>
+                          <input 
+                            type="text"
+                            className="form-control"
+                            placeholder="🔍 Search post by caption or ID..."
+                            value={logPostSearchTerm}
+                            onChange={(e) => setLogPostSearchTerm(e.target.value)}
+                            style={{
+                              backgroundColor: '#090d16',
+                              color: 'white',
+                              border: '1px solid rgba(255,255,255,0.15)',
+                              borderRadius: '8px',
+                              padding: '8px 12px',
+                              fontSize: '0.82rem',
+                              width: '100%'
+                            }}
+                            autoFocus
+                          />
+                          <div style={{ display: 'flex', gap: '6px', marginTop: '8px' }}>
+                            <button
+                              type="button"
+                              onClick={() => setLogPostFilterTab('activity')}
+                              style={{
+                                flex: 1,
+                                padding: '5px 8px',
+                                fontSize: '0.72rem',
+                                fontWeight: '600',
+                                borderRadius: '6px',
+                                border: 'none',
+                                cursor: 'pointer',
+                                backgroundColor: logPostFilterTab === 'activity' ? '#6366f1' : 'rgba(255,255,255,0.06)',
+                                color: 'white',
+                                transition: 'all 0.15s'
+                              }}
+                            >
+                              ⚡ With Activity / Logs ({postsWithActivity.length})
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => setLogPostFilterTab('all')}
+                              style={{
+                                flex: 1,
+                                padding: '5px 8px',
+                                fontSize: '0.72rem',
+                                fontWeight: '600',
+                                borderRadius: '6px',
+                                border: 'none',
+                                cursor: 'pointer',
+                                backgroundColor: logPostFilterTab === 'all' ? '#6366f1' : 'rgba(255,255,255,0.06)',
+                                color: 'white',
+                                transition: 'all 0.15s'
+                              }}
+                            >
+                              🌐 All Posts ({allAvailablePosts.length})
+                            </button>
                           </div>
-                        </td>
-                        <td>
-                          <strong style={{ color: 'var(--primary)', fontSize: '0.85rem', textTransform: 'uppercase' }}>
-                            {log.action_type}
-                          </strong>
-                        </td>
-                        <td>
-                          <span className={`badge ${log.status === 'success' ? 'badge-success' : 'badge-error'}`}>
-                            {log.status}
-                          </span>
-                        </td>
-                        <td>
-                          {log.action_type === 'reply_sent' && (
-                            <div>
-                              <p style={{ margin: 0, color: 'white' }}>💬 <strong>Reply:</strong> "{log.details?.text}"</p>
-                              {log.details?.reply_id && <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>ID: {log.details?.reply_id}</span>}
-                              {log.details?.error && <p style={{ margin: '4px 0 0 0', color: 'var(--error)', fontSize: '0.75rem' }}>Error: {log.details?.error}</p>}
+                        </div>
+
+                        {/* Scrollable list of posts */}
+                        <div style={{ maxHeight: '320px', overflowY: 'auto', padding: '6px' }}>
+                          {/* Option: All Posts */}
+                          <div
+                            onClick={() => {
+                              setSelectedLogPostId('all');
+                              setIsLogPostPickerOpen(false);
+                            }}
+                            style={{
+                              padding: '10px 12px',
+                              borderRadius: '8px',
+                              cursor: 'pointer',
+                              display: 'flex',
+                              alignItems: 'center',
+                              gap: '10px',
+                              backgroundColor: selectedLogPostId === 'all' ? 'rgba(99, 102, 241, 0.2)' : 'transparent',
+                              border: selectedLogPostId === 'all' ? '1px solid rgba(99, 102, 241, 0.4)' : '1px solid transparent',
+                              marginBottom: '4px',
+                              transition: 'background-color 0.15s'
+                            }}
+                            onMouseEnter={(e) => { if (selectedLogPostId !== 'all') e.currentTarget.style.backgroundColor = 'rgba(255, 255, 255, 0.05)'; }}
+                            onMouseLeave={(e) => { if (selectedLogPostId !== 'all') e.currentTarget.style.backgroundColor = 'transparent'; }}
+                          >
+                            <span style={{ fontSize: '1.2rem' }}>🌐</span>
+                            <div style={{ display: 'flex', flexDirection: 'column' }}>
+                              <span style={{ color: 'white', fontWeight: 'bold', fontSize: '0.85rem' }}>All Posts & Reels</span>
+                              <span style={{ color: 'var(--text-secondary)', fontSize: '0.72rem' }}>View logs for all published content ({logs.length} logs)</span>
                             </div>
-                          )}
-                          {log.action_type === 'dm_sent' && (
-                            <div>
-                              <p style={{ margin: 0, color: 'white' }}>✉️ <strong>DM:</strong> {renderDmText(log.details?.text)}</p>
-                              {log.details?.message_id && <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>ID: {log.details?.message_id}</span>}
-                              {log.details?.error && <p style={{ margin: '4px 0 0 0', color: 'var(--error)', fontSize: '0.75rem' }}>Error: {log.details?.error}</p>}
+                          </div>
+
+                          <div style={{ height: '1px', backgroundColor: 'rgba(255,255,255,0.08)', margin: '6px 0' }} />
+
+                          {/* List of matching posts */}
+                          {searchedPosts.length === 0 ? (
+                            <div style={{ padding: '20px', textAlign: 'center', color: 'var(--text-muted)', fontSize: '0.8rem' }}>
+                              No matching posts found.
                             </div>
+                          ) : (
+                            searchedPosts.map(p => {
+                              const isSelected = selectedLogPostId === p.id;
+                              const mediaUrl = p.media_url || p.thumbnail_url;
+                              return (
+                                <div
+                                  key={p.id}
+                                  onClick={() => {
+                                    setSelectedLogPostId(p.id);
+                                    setIsLogPostPickerOpen(false);
+                                  }}
+                                  style={{
+                                    padding: '8px 10px',
+                                    borderRadius: '8px',
+                                    cursor: 'pointer',
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    gap: '10px',
+                                    backgroundColor: isSelected ? 'rgba(99, 102, 241, 0.25)' : 'transparent',
+                                    border: isSelected ? '1px solid #6366f1' : '1px solid transparent',
+                                    marginBottom: '4px',
+                                    transition: 'background-color 0.15s'
+                                  }}
+                                  onMouseEnter={(e) => { if (!isSelected) e.currentTarget.style.backgroundColor = 'rgba(255, 255, 255, 0.05)'; }}
+                                  onMouseLeave={(e) => { if (!isSelected) e.currentTarget.style.backgroundColor = 'transparent'; }}
+                                >
+                                  {mediaUrl ? (
+                                    <img 
+                                      src={mediaUrl} 
+                                      alt="Thumbnail" 
+                                      style={{ width: '36px', height: '36px', objectFit: 'cover', borderRadius: '6px', border: '1px solid rgba(255,255,255,0.1)', flexShrink: 0 }}
+                                      onError={(e) => { e.target.style.display = 'none'; }}
+                                    />
+                                  ) : (
+                                    <div style={{ width: '36px', height: '36px', borderRadius: '6px', backgroundColor: 'rgba(255,255,255,0.05)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.9rem', flexShrink: 0 }}>
+                                      📷
+                                    </div>
+                                  )}
+
+                                  <div style={{ flex: 1, minWidth: 0, overflow: 'hidden' }}>
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '2px' }}>
+                                      <span className={`badge ${p.platform === 'facebook' ? 'badge-primary' : 'badge-success'}`} style={{ fontSize: '0.62rem', padding: '1px 5px' }}>
+                                        {p.platformName}
+                                      </span>
+                                      <span style={{ fontSize: '0.68rem', color: 'var(--text-muted)' }}>
+                                        ID: {p.id}
+                                      </span>
+                                    </div>
+                                    <p style={{ margin: 0, fontSize: '0.78rem', color: 'white', fontWeight: '500', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                                      {p.caption || "No Caption"}
+                                    </p>
+                                  </div>
+
+                                  {isSelected && (
+                                    <span style={{ color: '#818cf8', fontWeight: 'bold', fontSize: '0.9rem', flexShrink: 0 }}>✓</span>
+                                  )}
+                                </div>
+                              );
+                            })
                           )}
-                          {log.action_type === 'tag_added' && (
-                            <div>
-                              <p style={{ margin: 0 }}>🏷️ Added Tag: <span className="keyword-tag">{log.details?.tag}</span></p>
-                            </div>
-                          )}
-                          {log.action_type === 'trigger_match' && (
-                            <div>
-                              <p style={{ margin: 0 }}>🎯 Matched text: <strong>"{log.details?.comment_text}"</strong></p>
-                              <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>Keywords: {log.details?.matched_keywords?.join(', ')}</span>
-                            </div>
-                          )}
-                          {log.action_type === 'condition_check' && (
-                            <div>
-                              <p style={{ margin: 0 }}>⚙️ Checked field: <strong>{log.details?.field}</strong> ({log.details?.operator})</p>
-                              <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>Expected: {log.details?.expected} | Matched: {log.details?.matched ? 'Yes' : 'No'}</span>
-                            </div>
-                          )}
-                          {log.action_type !== 'reply_sent' && log.action_type !== 'dm_sent' && log.action_type !== 'tag_added' && log.action_type !== 'trigger_match' && log.action_type !== 'condition_check' && (
-                            <pre style={{ fontSize: '0.78rem', color: 'var(--text-secondary)', fontFamily: 'monospace', margin: 0 }}>
-                              {JSON.stringify(log.details)}
-                            </pre>
-                          )}
-                        </td>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </div>
+
+              <div className="card">
+                <div className="table-container">
+                  <table>
+                    <thead>
+                      <tr>
+                        <th>Timestamp</th>
+                        <th>Comment ID</th>
+                        <th>Target Post & Caption</th>
+                        <th>Action Executed</th>
+                        <th>Status</th>
+                        <th>Parameters / Response</th>
                       </tr>
-                    ))}
-                  </tbody>
-                </table>
+                    </thead>
+                    <tbody>
+                      {filteredLogs.length === 0 ? (
+                        <tr>
+                          <td colSpan={6} style={{ textAlign: 'center', padding: '36px', color: 'var(--text-muted)' }}>
+                            No execution logs found for the selected filter.
+                          </td>
+                        </tr>
+                      ) : (
+                        filteredLogs.map(log => {
+                          const logPost = getLogPostInfo(log);
+                          return (
+                            <tr key={log.id}>
+                              <td>{new Date(log.created_at || Date.now()).toLocaleString()}</td>
+                              <td>
+                                <div style={{ display: 'flex', flexDirection: 'column' }}>
+                                  <code>{log.comment_id}</code>
+                                  {(() => {
+                                    const matchedFlow = flows.find(f => f.id === log.flow_id);
+                                    const isFb = matchedFlow ? !!matchedFlow.facebook_account_id : log.comment_id?.startsWith('fb_');
+                                    return (
+                                      <span className={`badge ${isFb ? 'badge-primary' : 'badge-success'}`} style={{ alignSelf: 'flex-start', fontSize: '0.65rem', padding: '1px 6px', marginTop: '4px' }}>
+                                        {isFb ? 'Facebook' : 'Instagram'}
+                                      </span>
+                                    );
+                                  })()}
+                                </div>
+                              </td>
+                              <td>
+                                {!logPost ? (
+                                  <span style={{ color: 'var(--text-muted)', fontSize: '0.78rem' }}>Account-wide / General</span>
+                                ) : (
+                                  <div 
+                                    onClick={() => logPost.permalink && handleOpenPostOnPlatform(logPost)}
+                                    style={{
+                                      display: 'flex',
+                                      alignItems: 'center',
+                                      gap: '8px',
+                                      padding: '6px 10px',
+                                      backgroundColor: 'rgba(255, 255, 255, 0.03)',
+                                      border: '1px solid rgba(255, 255, 255, 0.08)',
+                                      borderRadius: '8px',
+                                      maxWidth: '280px',
+                                      cursor: logPost.permalink ? 'pointer' : 'default',
+                                      transition: 'all 0.15s ease'
+                                    }}
+                                    title={logPost.caption || `Post ID: ${logPost.postId}`}
+                                  >
+                                    {logPost.mediaUrl ? (
+                                      <img 
+                                        src={logPost.mediaUrl} 
+                                        alt="Thumbnail" 
+                                        style={{ width: '34px', height: '34px', objectFit: 'cover', borderRadius: '6px', flexShrink: 0 }}
+                                        onError={(e) => { e.target.style.display = 'none'; }}
+                                      />
+                                    ) : (
+                                      <div style={{ width: '34px', height: '34px', borderRadius: '6px', backgroundColor: '#1f2937', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.65rem', color: '#9ca3af', flexShrink: 0 }}>
+                                        📷
+                                      </div>
+                                    )}
+                                    <div style={{ flex: 1, minWidth: 0, overflow: 'hidden' }}>
+                                      <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                                        <span className={`badge ${logPost.platform === 'facebook' ? 'badge-primary' : 'badge-success'}`} style={{ fontSize: '0.6rem', padding: '1px 5px' }}>
+                                          {logPost.platformName}
+                                        </span>
+                                        <span style={{ fontSize: '0.68rem', color: 'var(--text-muted)' }}>
+                                          ID: {logPost.postId.slice(-6)}
+                                        </span>
+                                      </div>
+                                      <p style={{ margin: '2px 0 0 0', fontSize: '0.75rem', color: 'white', fontWeight: '500', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                                        {logPost.caption || `Post ID: ${logPost.postId}`}
+                                      </p>
+                                    </div>
+                                  </div>
+                                )}
+                              </td>
+                              <td>
+                                <strong style={{ color: 'var(--primary)', fontSize: '0.85rem', textTransform: 'uppercase' }}>
+                                  {log.action_type}
+                                </strong>
+                              </td>
+                              <td>
+                                <span className={`badge ${log.status === 'success' ? 'badge-success' : 'badge-error'}`}>
+                                  {log.status}
+                                </span>
+                              </td>
+                              <td>
+                                {log.action_type === 'reply_sent' && (
+                                  <div>
+                                    <p style={{ margin: 0, color: 'white' }}>💬 <strong>Reply:</strong> "{log.details?.text}"</p>
+                                    {log.details?.reply_id && <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>ID: {log.details?.reply_id}</span>}
+                                    {log.details?.error && <p style={{ margin: '4px 0 0 0', color: 'var(--error)', fontSize: '0.75rem' }}>Error: {log.details?.error}</p>}
+                                  </div>
+                                )}
+                                {log.action_type === 'dm_sent' && (
+                                  <div>
+                                    <p style={{ margin: 0, color: 'white' }}>✉️ <strong>DM:</strong> {renderDmText(log.details?.text)}</p>
+                                    {log.details?.message_id && <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>ID: {log.details?.message_id}</span>}
+                                    {log.details?.error && <p style={{ margin: '4px 0 0 0', color: 'var(--error)', fontSize: '0.75rem' }}>Error: {log.details?.error}</p>}
+                                  </div>
+                                )}
+                                {log.action_type === 'tag_added' && (
+                                  <div>
+                                    <p style={{ margin: 0 }}>🏷️ Added Tag: <span className="keyword-tag">{log.details?.tag}</span></p>
+                                  </div>
+                                )}
+                                {log.action_type === 'trigger_match' && (
+                                  <div>
+                                    <p style={{ margin: 0 }}>🎯 Matched text: <strong>"{log.details?.comment_text}"</strong></p>
+                                    <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>Keywords: {log.details?.matched_keywords?.join(', ')}</span>
+                                  </div>
+                                )}
+                                {log.action_type === 'condition_check' && (
+                                  <div>
+                                    <p style={{ margin: 0 }}>⚙️ Checked field: <strong>{log.details?.field}</strong> ({log.details?.operator})</p>
+                                    <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>Expected: {log.details?.expected} | Matched: {log.details?.matched ? 'Yes' : 'No'}</span>
+                                  </div>
+                                )}
+                                {log.action_type !== 'reply_sent' && log.action_type !== 'dm_sent' && log.action_type !== 'tag_added' && log.action_type !== 'trigger_match' && log.action_type !== 'condition_check' && (
+                                  <pre style={{ fontSize: '0.78rem', color: 'var(--text-secondary)', fontFamily: 'monospace', margin: 0 }}>
+                                    {JSON.stringify(log.details)}
+                                  </pre>
+                                )}
+                              </td>
+                            </tr>
+                          );
+                        })
+                      )}
+                    </tbody>
+                  </table>
+                </div>
               </div>
             </div>
-          </div>
-        )}
+          );
+        })()}
 
         {activeTab === 'dms' && (
           <div>

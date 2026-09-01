@@ -86,6 +86,8 @@ class AutomationEngine:
     async def log_step(self, flow_id: str, action_type: str, status: str, details: Dict[str, Any]):
         """Write execution step details to the database logs."""
         try:
+            if self.comment_event and getattr(self.comment_event, "media_id", None):
+                details["media_id"] = self.comment_event.media_id
             log_data = {
                 "flow_id": flow_id,
                 "comment_id": self.comment_event.comment_id,

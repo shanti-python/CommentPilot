@@ -22,6 +22,7 @@ async def read_logs(
     current_user: User = Depends(deps.get_current_user),
     flow_id: Optional[str] = Query(None, description="Filter logs by automation flow ID"),
     comment_id: Optional[str] = Query(None, description="Filter logs by comment ID"),
+    post_id: Optional[str] = Query(None, description="Filter logs by post ID"),
     skip: int = 0,
     limit: int = 100
 ) -> Any:
@@ -75,6 +76,16 @@ async def read_logs(
 
     if comment_id is not None:
         query = query.where(AutomationLog.comment_id == comment_id)
+
+    if post_id is not None:
+        query = query.where(
+            or_(
+                CommentEvent.media_id == post_id,
+                FacebookCommentEvent.media_id == post_id,
+                AutomationFlow.instagram_post_id == post_id,
+                AutomationFlow.facebook_post_id == post_id
+            )
+        )
 
     query = query.order_by(AutomationLog.created_at.desc()).offset(skip).limit(limit)
     res = await db.execute(query)
