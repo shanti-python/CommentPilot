@@ -82,7 +82,7 @@ class PostRepository(BaseRepository[Post]):
 
     async def get_by_instagram_account_id(self, db: AsyncSession, instagram_account_id: int) -> Sequence[Post]:
         result = await db.execute(
-            select(Post).filter(Post.instagram_account_id == instagram_account_id)
+            select(Post).filter(Post.instagram_account_id == instagram_account_id).order_by(Post.timestamp.desc())
         )
         return result.scalars().all()
 
@@ -132,7 +132,7 @@ class FacebookPostRepository(BaseRepository[FacebookPost]):
 
     async def get_by_facebook_account_id(self, db: AsyncSession, facebook_account_id: int) -> Sequence[FacebookPost]:
         result = await db.execute(
-            select(FacebookPost).filter(FacebookPost.facebook_account_id == facebook_account_id)
+            select(FacebookPost).filter(FacebookPost.facebook_account_id == facebook_account_id).order_by(FacebookPost.timestamp.desc())
         )
         return result.scalars().all()
 

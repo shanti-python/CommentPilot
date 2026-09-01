@@ -104,10 +104,14 @@ async def facebook_connect(
             
         saved_accounts = []
         for disc in discovered_accounts:
-            # Check if account already connected
+            # Check if account already connected by instagram_business_account_id or page_id
             existing = await instagram_account_repo.get_by_instagram_id(
                 db, instagram_business_account_id=disc["instagram_business_account_id"]
             )
+            if not existing:
+                existing = await instagram_account_repo.get_by_page_id(
+                    db, page_id=disc["page_id"]
+                )
             
             account_data = {
                 "user_id": current_user.id,
@@ -129,6 +133,23 @@ async def facebook_connect(
                 
             await db.commit()
             await db.refresh(account)
+
+            # Clean up any stale/duplicate Instagram accounts for the same page_id or user_id
+            from sqlalchemy import select, or_
+            from app.models.instagram import InstagramAccount
+            stale_stmt = select(InstagramAccount).where(
+                InstagramAccount.user_id == current_user.id,
+                or_(
+                    InstagramAccount.page_id == disc["page_id"],
+                    InstagramAccount.instagram_business_account_id == disc["instagram_business_account_id"]
+                ),
+                InstagramAccount.id != account.id
+            )
+            stale_res = await db.execute(stale_stmt)
+            for stale_acc in stale_res.scalars().all():
+                await db.delete(stale_acc)
+            await db.commit()
+
             saved_accounts.append(account)
             
             # Step 4: Sync posts in background (cache recent media)
@@ -227,6 +248,20 @@ async def facebook_connect_page(
                 
             await db.commit()
             await db.refresh(account)
+
+            # Clean up any duplicate facebook accounts for the same page_id
+            from sqlalchemy import select
+            from app.models.facebook import FacebookAccount
+            stale_stmt = select(FacebookAccount).where(
+                FacebookAccount.user_id == current_user.id,
+                FacebookAccount.facebook_page_id == disc["facebook_page_id"],
+                FacebookAccount.id != account.id
+            )
+            stale_res = await db.execute(stale_stmt)
+            for stale_acc in stale_res.scalars().all():
+                await db.delete(stale_acc)
+            await db.commit()
+
             saved_accounts.append(account)
             
             # Step 4: Sync posts in background (cache recent media)

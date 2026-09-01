@@ -426,15 +426,6 @@ export default function App() {
             if (config.scopes) {
               setMetaScopes(config.scopes);
             }
-            // Load Facebook SDK script
-            (function(d, s, id) {
-              var js, fjs = d.getElementsByTagName(s)[0];
-              if (d.getElementById(id)) return;
-              js = d.createElement(s); js.id = id;
-              js.src = "https://connect.facebook.net/en_US/sdk.js";
-              fjs.parentNode.insertBefore(js, fjs);
-            }(document, 'script', 'facebook-jssdk'));
-
             window.fbAsyncInit = function() {
               window.FB.init({
                 appId      : config.app_id,
@@ -443,6 +434,19 @@ export default function App() {
                 version    : 'v19.0'
               });
             };
+
+            // Load Facebook SDK script
+            (function(d, s, id) {
+              var js, fjs = d.getElementsByTagName(s)[0];
+              if (d.getElementById(id)) return;
+              js = d.createElement(s); js.id = id;
+              js.src = "https://connect.facebook.net/en_US/sdk.js";
+              if (fjs && fjs.parentNode) {
+                fjs.parentNode.insertBefore(js, fjs);
+              } else {
+                (d.head || d.body).appendChild(js);
+              }
+            }(document, 'script', 'facebook-jssdk'));
           }
         }
       } catch (err) {
@@ -627,8 +631,44 @@ export default function App() {
     }
   };
 
+  const handleDisconnectInstagram = async (accId) => {
+    if (!window.confirm("Are you sure you want to disconnect this Instagram account?")) return;
+    try {
+      const res = await fetch(`${API_BASE}/accounts/instagram/${accId}`, {
+        method: 'DELETE',
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+      if (res.ok) {
+        addToast("Instagram account disconnected successfully", "success");
+        fetchBackendData();
+      } else {
+        addToast("Failed to disconnect Instagram account", "error");
+      }
+    } catch (err) {
+      addToast("Network error while disconnecting account", "error");
+    }
+  };
+
+  const handleDisconnectFacebook = async (accId) => {
+    if (!window.confirm("Are you sure you want to disconnect this Facebook Page?")) return;
+    try {
+      const res = await fetch(`${API_BASE}/accounts/facebook/${accId}`, {
+        method: 'DELETE',
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+      if (res.ok) {
+        addToast("Facebook Page disconnected successfully", "success");
+        fetchBackendData();
+      } else {
+        addToast("Failed to disconnect Facebook Page", "error");
+      }
+    } catch (err) {
+      addToast("Network error while disconnecting page", "error");
+    }
+  };
+
   // Facebook Connect Handshake
-  const handleFacebookConnect = (option = 'default') => {
+  const handleFacebookConnect = async (option = 'default') => {
     setIsConnectingFB(true);
 
     if (demoMode) {
@@ -661,28 +701,21 @@ export default function App() {
       return;
     }
 
-    if (option === 'manual') {
-      const enteredToken = prompt(
-        "Please enter your Facebook User Access Token manually:"
-      );
-      if (!enteredToken) {
-        setIsConnectingFB(false);
-        return;
+    // Wait up to 2 seconds if window.FB is currently loading
+    let fbInstance = window.FB;
+    if (!fbInstance) {
+      for (let i = 0; i < 10; i++) {
+        await new Promise(r => setTimeout(r, 200));
+        if (window.FB) {
+          fbInstance = window.FB;
+          break;
+        }
       }
-      submitFacebookToken(enteredToken.trim());
-      return;
     }
 
-    // Live Mode: Check if Meta SDK is available
-    if (!window.FB) {
-      const enteredToken = prompt(
-        "Meta JavaScript SDK is not loaded (likely blocked by AdBlocker).\n\nPlease enter your Facebook User Access Token manually:"
-      );
-      if (!enteredToken) {
-        setIsConnectingFB(false);
-        return;
-      }
-      submitFacebookToken(enteredToken.trim());
+    if (!fbInstance) {
+      addToast("Meta Facebook SDK is not loaded. Please ensure ad blockers are disabled and refresh the page.", "error");
+      setIsConnectingFB(false);
       return;
     }
 
@@ -694,8 +727,8 @@ export default function App() {
     }
 
     // Trigger Facebook SDK login
-    window.FB.login(function(response) {
-      if (response.authResponse) {
+    fbInstance.login(function(response) {
+      if (response && response.authResponse) {
         submitFacebookToken(response.authResponse.accessToken);
       } else {
         addToast("Facebook connection cancelled or not fully authorized.", "warning");
@@ -2226,6 +2259,11 @@ export default function App() {
                 const hasDirect = post.keyword || post.reply_message || post.dm_message;
                 return !hasFlow && !hasDirect;
               });
+              postsReadyToSetup.sort((a, b) => {
+                const dateA = a.timestamp ? new Date(a.timestamp).getTime() : 0;
+                const dateB = b.timestamp ? new Date(b.timestamp).getTime() : 0;
+                return dateB - dateA;
+              });
 
               if (postsReadyToSetup.length === 0) return null;
 
@@ -2417,6 +2455,11 @@ export default function App() {
               const allPostItems = [...posts, ...facebookPosts].map(post => {
                 const status = getPostStatus(post);
                 return { post, status };
+              });
+              allPostItems.sort((a, b) => {
+                const dateA = a.post.timestamp ? new Date(a.post.timestamp).getTime() : 0;
+                const dateB = b.post.timestamp ? new Date(b.post.timestamp).getTime() : 0;
+                return dateB - dateA;
               });
 
               // Filter by status tab selection
@@ -2865,8 +2908,15 @@ export default function App() {
                           <h3 style={{ margin: '0 0 4px 0' }}>{acc.name}</h3>
                           <p style={{ margin: 0, color: 'var(--text-secondary)', fontSize: '0.85rem' }}>@{acc.username} • Linked to FB Page: {acc.page_name || 'Associated Page'}</p>
                         </div>
-                        <div>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
                           <span className="badge badge-success">Instagram Connected</span>
+                          <button 
+                            className="btn btn-secondary" 
+                            style={{ padding: '6px 12px', fontSize: '0.8rem', color: '#ff4d4f', borderColor: 'rgba(255, 77, 79, 0.3)' }}
+                            onClick={() => handleDisconnectInstagram(acc.id)}
+                          >
+                            Disconnect
+                          </button>
                         </div>
                       </div>
                     ))
@@ -2892,8 +2942,15 @@ export default function App() {
                           <h3 style={{ margin: '0 0 4px 0' }}>{acc.name}</h3>
                           <p style={{ margin: 0, color: 'var(--text-secondary)', fontSize: '0.85rem' }}>Page ID: {acc.facebook_page_id} {acc.username ? `• @${acc.username}` : ''}</p>
                         </div>
-                        <div>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
                           <span className="badge badge-primary">Facebook Connected</span>
+                          <button 
+                            className="btn btn-secondary" 
+                            style={{ padding: '6px 12px', fontSize: '0.8rem', color: '#ff4d4f', borderColor: 'rgba(255, 77, 79, 0.3)' }}
+                            onClick={() => handleDisconnectFacebook(acc.id)}
+                          >
+                            Disconnect
+                          </button>
                         </div>
                       </div>
                     ))
@@ -3152,6 +3209,13 @@ export default function App() {
                 const status = post.automation_status || 'setup';
                 if (postsAutomationFilter === 'all') return true;
                 return status === postsAutomationFilter;
+              });
+
+              // 3. Arrange posts by published date (most recent posts displayed first)
+              filtered.sort((a, b) => {
+                const dateA = a.timestamp ? new Date(a.timestamp).getTime() : 0;
+                const dateB = b.timestamp ? new Date(b.timestamp).getTime() : 0;
+                return dateB - dateA;
               });
 
               if (allItems.length === 0) {
@@ -4873,16 +4937,18 @@ export default function App() {
                     >
                       <option value="">General (All Posts / Account-wide)</option>
                       {selectedFlow.facebook_account_id ? (
-                        facebookPosts
+                        [...facebookPosts]
                           .filter(p => p.facebook_account_id === selectedFlow.facebook_account_id)
+                          .sort((a, b) => (b.timestamp ? new Date(b.timestamp).getTime() : 0) - (a.timestamp ? new Date(a.timestamp).getTime() : 0))
                           .map(p => (
                             <option key={p.id} value={p.id} style={{ backgroundColor: '#111827' }}>
                               Post: {p.caption ? (p.caption.slice(0, 40) + "...") : "No Caption"} ({p.id})
                             </option>
                           ))
                       ) : (
-                        posts
+                        [...posts]
                           .filter(p => p.instagram_account_id === selectedFlow.instagram_account_id)
+                          .sort((a, b) => (b.timestamp ? new Date(b.timestamp).getTime() : 0) - (a.timestamp ? new Date(a.timestamp).getTime() : 0))
                           .map(p => (
                             <option key={p.id} value={p.id} style={{ backgroundColor: '#111827' }}>
                               Post: {p.caption ? (p.caption.slice(0, 40) + "...") : "No Caption"} ({p.id})

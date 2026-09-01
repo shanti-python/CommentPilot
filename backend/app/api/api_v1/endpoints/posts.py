@@ -33,7 +33,7 @@ async def read_posts(
     if not account_ids:
         return []
         
-    query = select(Post).where(Post.instagram_account_id.in_(account_ids))
+    query = select(Post).where(Post.instagram_account_id.in_(account_ids)).order_by(Post.timestamp.desc())
     
     if instagram_account_id is not None:
         if instagram_account_id in account_ids:
@@ -95,8 +95,8 @@ async def sync_posts(
         except MetaAPIError as e:
             logger.warning(f"Meta sync failed for Instagram @{account.username}: {e.message}")
                 
-    # Return all posts for the user
-    query = select(Post).where(Post.instagram_account_id.in_([acc.id for acc in accounts]))
+    # Return all posts for the user ordered by published date
+    query = select(Post).where(Post.instagram_account_id.in_([acc.id for acc in accounts])).order_by(Post.timestamp.desc())
     res = await db.execute(query)
     return res.scalars().all()
 
@@ -312,7 +312,7 @@ async def read_facebook_posts(
     if not account_ids:
         return []
         
-    query = select(FacebookPost).where(FacebookPost.facebook_account_id.in_(account_ids))
+    query = select(FacebookPost).where(FacebookPost.facebook_account_id.in_(account_ids)).order_by(FacebookPost.timestamp.desc())
     
     if facebook_account_id is not None:
         if facebook_account_id in account_ids:
@@ -372,8 +372,8 @@ async def sync_facebook_posts(
         except MetaAPIError as e:
             logger.warning(f"Meta sync failed for Facebook Page @{account.name}: {e.message}")
                 
-    # Return all posts for the user
-    query = select(FacebookPost).where(FacebookPost.facebook_account_id.in_([acc.id for acc in accounts]))
+    # Return all posts for the user ordered by published date
+    query = select(FacebookPost).where(FacebookPost.facebook_account_id.in_([acc.id for acc in accounts])).order_by(FacebookPost.timestamp.desc())
     res = await db.execute(query)
     return res.scalars().all()
 
