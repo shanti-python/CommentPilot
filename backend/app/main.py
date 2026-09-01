@@ -32,6 +32,8 @@ async def lifespan(app: FastAPI):
         await conn.execute(text("ALTER TABLE posts ADD COLUMN IF NOT EXISTS thumbnail_url TEXT;"))
         await conn.execute(text("ALTER TABLE automation_flows ADD COLUMN IF NOT EXISTS instagram_post_id VARCHAR;"))
         await conn.execute(text("ALTER TABLE automation_flows ADD COLUMN IF NOT EXISTS facebook_post_id VARCHAR;"))
+        await conn.execute(text("UPDATE posts SET timestamp = CURRENT_TIMESTAMP WHERE timestamp IS NULL;"))
+        await conn.execute(text("UPDATE facebook_posts SET timestamp = CURRENT_TIMESTAMP WHERE timestamp IS NULL;"))
         
     logger.info("Database tables initialized successfully.")
     

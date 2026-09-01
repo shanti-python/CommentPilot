@@ -161,7 +161,8 @@ async def facebook_connect(
                 for post in posts_data:
                     existing_post = await post_repo.get(db, post["id"])
                     
-                    ts_val = parse_iso_timestamp(post.get("timestamp"))
+                    raw_ts = post.get("timestamp") or post.get("created_time") or post.get("created_at")
+                    ts_val = parse_iso_timestamp(raw_ts)
 
                     post_in = {
                         "id": post["id"],
@@ -170,8 +171,12 @@ async def facebook_connect(
                         "media_type": post.get("media_type"),
                         "media_url": post.get("media_url"),
                         "permalink": post.get("permalink"),
-                        "timestamp": ts_val
                     }
+                    if ts_val is not None:
+                        post_in["timestamp"] = ts_val
+                    elif not existing_post or existing_post.timestamp is None:
+                        post_in["timestamp"] = datetime.utcnow()
+
                     if existing_post:
                         await post_repo.update(db, db_obj=existing_post, obj_in=post_in)
                     else:
@@ -273,7 +278,8 @@ async def facebook_connect_page(
                 for post in posts_data:
                     existing_post = await facebook_post_repo.get(db, post["id"])
                     
-                    ts_val = parse_iso_timestamp(post.get("timestamp"))
+                    raw_ts = post.get("timestamp") or post.get("created_time") or post.get("created_at")
+                    ts_val = parse_iso_timestamp(raw_ts)
 
                     post_in = {
                         "id": post["id"],
@@ -283,8 +289,12 @@ async def facebook_connect_page(
                         "media_url": post.get("media_url"),
                         "thumbnail_url": post.get("thumbnail_url"),
                         "permalink": post.get("permalink"),
-                        "timestamp": ts_val
                     }
+                    if ts_val is not None:
+                        post_in["timestamp"] = ts_val
+                    elif not existing_post or existing_post.timestamp is None:
+                        post_in["timestamp"] = datetime.utcnow()
+
                     if existing_post:
                         await facebook_post_repo.update(db, db_obj=existing_post, obj_in=post_in)
                     else:

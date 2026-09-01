@@ -55,9 +55,25 @@ const ensureAbsoluteUrl = (url) => {
 
 
 export default function App() {
-  const formatDateIST = (timestamp) => {
-    if (!timestamp) return 'N/A';
-    const d = new Date(timestamp);
+  const formatDateIST = (rawVal) => {
+    let val = rawVal;
+    if (val && typeof val === 'object' && !(val instanceof Date)) {
+      val = val.timestamp || val.created_time || val.created_at || val.date;
+    }
+    if (!val) return 'N/A';
+
+    let d;
+    if (val instanceof Date) {
+      d = val;
+    } else if (typeof val === 'number') {
+      d = new Date(val < 1e11 ? val * 1000 : val);
+    } else if (typeof val === 'string' && /^\d+$/.test(val.trim())) {
+      const num = Number(val.trim());
+      d = new Date(num < 1e11 ? num * 1000 : num);
+    } else {
+      d = new Date(val);
+    }
+
     if (!d || isNaN(d.getTime()) || d.getFullYear() <= 1970) return 'N/A';
     return d.toLocaleString('en-IN', {
       timeZone: 'Asia/Kolkata',
@@ -86,9 +102,26 @@ export default function App() {
   const [postsFilterStatus, setPostsFilterStatus] = useState('All');
   const [postsSearchQuery, setPostsSearchQuery] = useState('');
   
-  const getRelativeTime = (timestamp) => {
-    if (!timestamp) return 'N/A';
-    const date = new Date(timestamp);
+  const getRelativeTime = (rawVal) => {
+    let val = rawVal;
+    if (val && typeof val === 'object' && !(val instanceof Date)) {
+      val = val.timestamp || val.created_time || val.created_at || val.date;
+    }
+    if (!val) return 'N/A';
+
+    let date;
+    if (val instanceof Date) {
+      date = val;
+    } else if (typeof val === 'number') {
+      date = new Date(val < 1e11 ? val * 1000 : val);
+    } else if (typeof val === 'string' && /^\d+$/.test(val.trim())) {
+      const num = Number(val.trim());
+      date = new Date(num < 1e11 ? num * 1000 : num);
+    } else {
+      date = new Date(val);
+    }
+
+    if (!date || isNaN(date.getTime()) || date.getFullYear() <= 1970) return 'N/A';
     const now = new Date();
     const diffTime = Math.abs(now - date);
     const diffDays = Math.floor(diffTime / (1000 * 60 * 60 * 24));
@@ -1806,7 +1839,7 @@ export default function App() {
                   {activeCommentsPost.caption || "No caption"}
                 </p>
                 <span style={{ fontSize: '0.78rem', color: 'var(--text-muted)' }}>
-                  Posted on {formatDateIST(activeCommentsPost.timestamp)}
+                  Posted on {formatDateIST(activeCommentsPost.timestamp || activeCommentsPost.created_time || activeCommentsPost.created_at)}
                 </span>
               </div>
             </div>
@@ -3335,7 +3368,7 @@ export default function App() {
                             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '0.75rem', color: 'var(--text-secondary)' }}>
                               <span>Date Published:</span>
                               <span style={{ fontWeight: 'bold' }}>
-                                {formatDateIST(post.timestamp)}
+                                {formatDateIST(post.timestamp || post.created_time || post.created_at)}
                               </span>
                             </div>
                             

@@ -328,11 +328,15 @@ class MetaClient:
         """Fetch list of media/posts on the Instagram business account."""
         logger.info(f"Fetching posts for Instagram Account {instagram_business_account_id}")
         params = {
-            "fields": "id,caption,media_type,media_url,thumbnail_url,permalink,timestamp",
+            "fields": "id,caption,media_type,media_url,thumbnail_url,permalink,timestamp,created_time",
             "access_token": page_access_token
         }
         res = await self._request("GET", f"/{instagram_business_account_id}/media", params=params)
-        return res.get("data", [])
+        posts_data = []
+        for item in res.get("data", []):
+            item["timestamp"] = item.get("timestamp") or item.get("created_time")
+            posts_data.append(item)
+        return posts_data
 
     async def get_instagram_comments(self, media_id: str, page_access_token: str) -> List[Dict[str, Any]]:
         """Fetch comments for a specific Instagram post/media, including nested replies."""

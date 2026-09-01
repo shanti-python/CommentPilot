@@ -54,19 +54,56 @@ from typing import Optional, Any
 
 def parse_iso_timestamp(ts_val: Any) -> Optional[datetime]:
     """
-    Parse ISO 8601 timestamps returned by Meta APIs, handling Z suffixes
-    and lack of timezone colons in older Python versions.
+    Parse ISO 8601 timestamps returned by Meta APIs, handling Z suffixes,
+    unix timestamps (int/float or numeric string), datetime objects, etc.
     """
-    if not isinstance(ts_val, str):
+    if ts_val is None or ts_val == "":
         return None
-    if ts_val.endswith("Z"):
-        ts_val = ts_val[:-1] + "+00:00"
-    # Convert +HHMM or -HHMM timezone offsets to +HH:MM format for Python <= 3.10
-    ts_val = re.sub(r'([+-]\d{2})(\d{2})$', r'\1:\2', ts_val)
-    try:
-        dt = datetime.fromisoformat(ts_val)
-        if dt.tzinfo is not None:
-            dt = dt.astimezone(timezone.utc).replace(tzinfo=None)
-        return dt
-    except ValueError:
-        return None
+
+    if isinstance(ts_val, datetime):
+        return ts_val.replace(tzinfo=None) if ts_val.tzinfo else ts_val
+
+    if isinstance(ts_val, (int, float)):
+        try:
+            sec = ts_val / 1000.0 if ts_val > 1e11 else float(ts_val)
+            dt = datetime.fromtimestamp(sec, tz=timezone.utc)
+            return dt.replace(tzinfo=None)
+        except Exception:
+            return None
+
+    if isinstance(ts_val, str):
+        ts_str = ts_val.strip()
+        if not ts_str:
+            return None
+
+        # Check for numeric string (Unix timestamp)
+        if ts_str.isdigit() or (ts_str.replace('.', '', 1).isdigit() and ts_str.count('.') <= 1):
+            try:
+                num = float(ts_str)
+                sec = num / 1000.0 if num > 1e11 else num
+                dt = datetime.fromtimestamp(sec, tz=timezone.utc)
+                return dt.replace(tzinfo=None)
+            except Exception:
+                pass
+
+        if ts_str.endswith("Z"):
+            ts_str = ts_str[:-1] + "+00:00"
+
+        # Convert +HHMM or -HHMM timezone offsets to +HH:MM format
+        ts_str = re.sub(r'([+-]\d{2})(\d{2})$', r'\1:\2', ts_str)
+
+        try:
+            dt = datetime.fromisoformat(ts_str)
+            if dt.tzinfo is not None:
+                dt = dt.astimezone(timezone.utc).replace(tzinfo=None)
+            return dt
+        except ValueError:
+            for fmt in ("%Y-%m-%dT%H:%M:%S", "%Y-%m-%d %H:%M:%S", "%Y-%m-%d"):
+                try:
+                    clean_str = ts_str.split('+')[0].split('-')[0].split('.')[0] if '+' in ts_str else ts_str.split('.')[0]
+                    return datetime.strptime(clean_str, fmt)
+                except ValueError:
+                    continue
+            return None
+
+    return None
