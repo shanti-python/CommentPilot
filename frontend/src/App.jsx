@@ -893,44 +893,44 @@ export default function App() {
 
   const handleSyncPosts = async () => {
     if (demoMode) {
-      if (postsFilterPlatform === 'facebook') {
-        setFacebookPosts(MOCK_FACEBOOK_POSTS);
-        addToast("Synchronized mock Facebook posts successfully.", "success");
-      } else {
-        setPosts(MOCK_POSTS);
-        addToast("Synchronized mock Instagram posts successfully.", "success");
-      }
+      setFacebookPosts(MOCK_FACEBOOK_POSTS);
+      setPosts(MOCK_POSTS);
+      addToast("Synchronized mock posts successfully.", "success");
       return;
     }
 
-    const isFb = postsFilterPlatform === 'facebook';
-    const isConnected = isFb ? facebookAccounts.length > 0 : accounts.length > 0;
-    if (!isConnected) {
-      addToast(`Please connect a ${isFb ? 'Facebook Page' : 'Instagram'} account first.`, "warning");
+    const hasAccounts = accounts.length > 0 || facebookAccounts.length > 0;
+    if (!hasAccounts) {
+      addToast("Please connect an Instagram or Facebook account first.", "warning");
       return;
     }
 
     setIsSyncingPosts(true);
-    const url = isFb ? `${API_BASE}/posts/facebook/sync` : `${API_BASE}/posts/sync`;
     try {
-      const res = await fetch(url, {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${token}`
-        }
-      });
-      if (res.ok) {
-        const data = await res.json();
-        if (isFb) {
-          setFacebookPosts(data);
-        } else {
-          setPosts(data);
-        }
-        addToast(`Synchronized ${isFb ? 'Facebook' : 'Instagram'} posts with Meta successfully.`, "success");
-      } else {
-        const err = await res.json();
-        addToast(err.detail || "Failed to sync posts.", "error");
+      const promises = [];
+      if (accounts.length > 0) {
+        promises.push(
+          fetch(`${API_BASE}/posts/sync`, {
+            method: 'POST',
+            headers: { 'Authorization': `Bearer ${token}` }
+          }).then(async res => {
+            if (res.ok) setPosts(await res.json());
+          })
+        );
       }
+      if (facebookAccounts.length > 0) {
+        promises.push(
+          fetch(`${API_BASE}/posts/facebook/sync`, {
+            method: 'POST',
+            headers: { 'Authorization': `Bearer ${token}` }
+          }).then(async res => {
+            if (res.ok) setFacebookPosts(await res.json());
+          })
+        );
+      }
+
+      await Promise.all(promises);
+      addToast("Synchronized social posts with Meta successfully.", "success");
     } catch (err) {
       addToast("Connection error while syncing posts.", "error");
     } finally {

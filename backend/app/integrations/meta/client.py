@@ -329,7 +329,8 @@ class MetaClient:
         logger.info(f"Fetching posts for Instagram Account {instagram_business_account_id}")
         params = {
             "fields": "id,caption,media_type,media_url,thumbnail_url,permalink,timestamp,created_time",
-            "access_token": page_access_token
+            "access_token": page_access_token,
+            "limit": 100
         }
         res = await self._request("GET", f"/{instagram_business_account_id}/media", params=params)
         posts_data = []
@@ -442,7 +443,8 @@ class MetaClient:
         logger.info(f"Fetching posts for Facebook Page {page_id}")
         params = {
             "fields": "id,message,permalink_url,created_time,full_picture,attachments{media_type,type,url,media}",
-            "access_token": page_access_token
+            "access_token": page_access_token,
+            "limit": 100
         }
         if page_access_token == "mock_page_token" or str(page_access_token).startswith("mock"):
             return []
