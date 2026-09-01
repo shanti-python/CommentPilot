@@ -270,21 +270,30 @@ class AutomationEngine:
                         details=log_details
                     )
                 except MetaAPIError as e:
-                    # Handle Meta platform limits on private replies
+                    # Handle Meta platform limits on private replies:
+                    # 1. Subcode 2534025: Comment already received a private reply
+                    # 2. Subcode 2534024: Comment is older than Meta's 7-day limit for private replies
                     is_platform_limit = (
-                        (e.error_code == 100 and e.error_subcode == 2534025) or
+                        (e.error_code in (100, -1) and e.error_subcode in (2534025, 2534024)) or
+                        e.error_subcode in (2534025, 2534024) or
                         "invalid for a private reply" in str(e).lower() or
-                        "already has a reply" in str(e).lower()
+                        "already has a reply" in str(e).lower() or
+                        "too old" in str(e).lower()
                     )
 
                     if is_platform_limit:
+                        reason_text = (
+                            "Meta platform limit: Comment is older than 7 days, or user has already received a private reply on this post."
+                            if (e.error_subcode == 2534024 or "too old" in str(e).lower())
+                            else "Meta platform limit: Comment already replied to, or user has already received a private reply on this post."
+                        )
                         logger.info(f"Private reply skipped due to Meta platform limit: {str(e)}")
                         await self.log_step(
                             flow_id=flow.id,
                             action_type="dm_sent",
                             status="skipped",
                             details={
-                                "reason": "Meta platform limit: Comment already replied to, or user has already received a private reply on this post.",
+                                "reason": reason_text,
                                 "error": str(e)
                             }
                         )

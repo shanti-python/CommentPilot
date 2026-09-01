@@ -131,10 +131,16 @@ export default function App() {
     return date.toLocaleDateString('en-IN', { day: 'numeric', month: 'long' });
   };
   
+  const checkIsFbPost = (post) => {
+    if (!post) return false;
+    return Boolean(post.facebook_account_id || post.facebook_page_id || post.is_facebook || (post.id && String(post.id).startsWith('fb_')));
+  };
+  
   const getPostStatus = (post) => {
     if (!post) return 'Setup';
-    const isFb = post.facebook_account_id !== undefined || ('facebook_account_id' in post);
-    const flow = flows.find(f => isFb ? f.facebook_post_id === post.id : f.instagram_post_id === post.id);
+    const isFb = checkIsFbPost(post);
+    const postIdStr = String(post.id);
+    const flow = flows.find(f => isFb ? String(f.facebook_post_id) === postIdStr : String(f.instagram_post_id) === postIdStr);
     if (flow) {
       return flow.is_active ? 'Active' : 'Paused';
     }
@@ -175,8 +181,9 @@ export default function App() {
 
   const handleTogglePostAutomation = async (post) => {
     if (!post) return;
-    const isFb = post.facebook_account_id !== undefined || ('facebook_account_id' in post);
-    const flow = flows.find(f => isFb ? f.facebook_post_id === post.id : f.instagram_post_id === post.id);
+    const isFb = checkIsFbPost(post);
+    const postIdStr = String(post.id);
+    const flow = flows.find(f => isFb ? String(f.facebook_post_id) === postIdStr : String(f.instagram_post_id) === postIdStr);
     
     if (flow) {
       const updatedFlow = { ...flow, is_active: !flow.is_active };
@@ -263,74 +270,153 @@ export default function App() {
     };
   };
 
+  const getFlowLinkedPost = (flow) => {
+    if (!flow) return null;
+    let isFb = !!flow.facebook_post_id;
+    let postId = isFb ? flow.facebook_post_id : flow.instagram_post_id;
+
+    if (!postId && flow.nodes) {
+      const triggerNode = flow.nodes.find(n => n.type === 'trigger');
+      if (triggerNode?.config?.post_id) {
+        postId = triggerNode.config.post_id;
+        isFb = !!triggerNode.config.is_facebook;
+      }
+    }
+
+    let matchedPost = null;
+    if (postId) {
+      const postIdStr = String(postId);
+      matchedPost = isFb 
+        ? facebookPosts.find(p => String(p.id) === postIdStr || String(p.facebook_post_id) === postIdStr) 
+        : posts.find(p => String(p.id) === postIdStr || String(p.instagram_post_id) === postIdStr);
+    } else if (flow.name && flow.name.startsWith("Post Flow: ")) {
+      const titleSnippet = flow.name.replace("Post Flow: ", "").trim().toLowerCase();
+      matchedPost = posts.find(p => p.caption && p.caption.toLowerCase().includes(titleSnippet)) ||
+                    facebookPosts.find(p => (p.caption || p.message || '').toLowerCase().includes(titleSnippet));
+      if (matchedPost) {
+        postId = matchedPost.id;
+        isFb = !!matchedPost.facebook_account_id;
+      }
+    }
+
+    if (!postId && !matchedPost) return null;
+
+    const postIdStr = String(postId || matchedPost?.id);
+    const matchedInsta = accounts.find(a => a.id === flow.instagram_account_id);
+    const matchedFb = facebookAccounts.find(a => a.id === flow.facebook_account_id);
+    const platformName = (isFb || flow.facebook_account_id) ? "Facebook" : "Instagram";
+    const accountName = matchedFb ? matchedFb.name : matchedInsta ? `@${matchedInsta.username}` : "Connected Channel";
+
+    const mediaUrl = matchedPost?.media_url || matchedPost?.thumbnail_url || matchedPost?.full_picture || null;
+    
+    let caption = matchedPost?.caption || matchedPost?.message || null;
+    if (!caption && flow.name) {
+      if (flow.name.startsWith("Post Flow: ")) {
+        caption = flow.name.replace("Post Flow: ", "");
+      } else {
+        caption = flow.name;
+      }
+    }
+
+    const permalink = matchedPost?.permalink || matchedPost?.permalink_url || (isFb ? null : `https://www.instagram.com/p/${postIdStr}/`);
+    const timestamp = matchedPost?.timestamp || matchedPost?.created_time || matchedPost?.created_at || null;
+
+    return {
+      postId: postIdStr,
+      isFb,
+      platformName,
+      accountName,
+      matchedPost: matchedPost || null,
+      mediaUrl,
+      caption: caption || `Post ${postIdStr}`,
+      permalink,
+      timestamp,
+      flow
+    };
+  };
+
+  const handleOpenPostOnPlatform = (linkedPostInfo) => {
+    if (!linkedPostInfo) return;
+    const postToOpen = linkedPostInfo.matchedPost || {
+      id: linkedPostInfo.postId,
+      caption: linkedPostInfo.caption || `Post ${linkedPostInfo.postId}`,
+      media_url: linkedPostInfo.mediaUrl,
+      thumbnail_url: linkedPostInfo.mediaUrl,
+      permalink: linkedPostInfo.permalink,
+      timestamp: linkedPostInfo.timestamp,
+      facebook_account_id: linkedPostInfo.isFb ? (linkedPostInfo.flow?.facebook_account_id || null) : null,
+      instagram_account_id: !linkedPostInfo.isFb ? (linkedPostInfo.flow?.instagram_account_id || null) : null
+    };
+    handleOpenComments(postToOpen);
+  };
+
   const handleRemovePostAutomation = async (post) => {
     if (!post) return;
-    const isFb = post.facebook_account_id !== undefined || ('facebook_account_id' in post);
-    const flow = flows.find(f => isFb ? f.facebook_post_id === post.id : f.instagram_post_id === post.id);
+    const isFb = checkIsFbPost(post);
+    const postIdStr = String(post.id);
+    const flow = flows.find(f => isFb ? String(f.facebook_post_id) === postIdStr : String(f.instagram_post_id) === postIdStr);
     
-    if (flow) {
-      if (demoMode) {
+    const updatedPost = { 
+      ...post, 
+      automation_status: 'setup', 
+      keyword: null, 
+      reply_message: null, 
+      dm_message: null 
+    };
+
+    if (demoMode) {
+      if (flow) {
         setFlows(prev => prev.filter(f => f.id !== flow.id));
-        addToast("Automation removed (Mock)", "success");
-      } else {
-        try {
-          const res = await fetch(`${API_BASE}/automation/${flow.id}`, {
-            method: 'DELETE',
-            headers: {
-              'Authorization': `Bearer ${token}`
-            }
-          });
-          if (res.ok) {
-            addToast("Automation removed successfully!", "success");
-            setFlows(prev => prev.filter(f => f.id !== flow.id));
-          } else {
-            addToast("Failed to remove automation.", "error");
-          }
-        } catch (err) {
-          console.error(err);
-          addToast("Connection error.", "error");
-        }
       }
-    } else {
-      const updatedPost = { ...post, automation_status: 'setup', keyword: null, reply_message: null, dm_message: null };
-      if (demoMode) {
+      if (isFb) {
+        setFacebookPosts(prev => prev.map(p => String(p.id) === postIdStr ? updatedPost : p));
+      } else {
+        setPosts(prev => prev.map(p => String(p.id) === postIdStr ? updatedPost : p));
+      }
+      addToast("Automation removed (Mock)", "success");
+      return;
+    }
+
+    try {
+      if (flow) {
+        await fetch(`${API_BASE}/automation/${flow.id}`, {
+          method: 'DELETE',
+          headers: { 'Authorization': `Bearer ${token}` }
+        });
+      }
+
+      const url = isFb ? `${API_BASE}/posts/facebook/${post.id}/automation` : `${API_BASE}/posts/${post.id}/automation`;
+      const res = await fetch(url, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify({
+          automation_status: 'setup',
+          keyword: "",
+          reply_message: "",
+          dm_message: ""
+        })
+      });
+
+      if (res.ok || flow) {
+        addToast("Automation removed successfully!", "success");
+        if (flow) {
+          setFlows(prev => prev.filter(f => f.id !== flow.id));
+        }
         if (isFb) {
-          setFacebookPosts(prev => prev.map(p => p.id === post.id ? updatedPost : p));
+          setFacebookPosts(prev => prev.map(p => String(p.id) === postIdStr ? updatedPost : p));
         } else {
-          setPosts(prev => prev.map(p => p.id === post.id ? updatedPost : p));
+          setPosts(prev => prev.map(p => String(p.id) === postIdStr ? updatedPost : p));
         }
-        addToast("Automation removed (Mock)", "success");
+        fetchBackendData();
       } else {
-        try {
-          const url = isFb ? `${API_BASE}/posts/facebook/${post.id}/automation` : `${API_BASE}/posts/${post.id}/automation`;
-          const res = await fetch(url, {
-            method: 'PUT',
-            headers: {
-              'Content-Type': 'application/json',
-              'Authorization': `Bearer ${token}`
-            },
-            body: JSON.stringify({
-              automation_status: 'setup',
-              keyword: "",
-              reply_message: "",
-              dm_message: ""
-            })
-          });
-          if (res.ok) {
-            addToast("Automation removed successfully!", "success");
-            if (isFb) {
-              setFacebookPosts(prev => prev.map(p => p.id === post.id ? updatedPost : p));
-            } else {
-              setPosts(prev => prev.map(p => p.id === post.id ? updatedPost : p));
-            }
-          } else {
-            addToast("Failed to remove automation.", "error");
-          }
-        } catch (err) {
-          console.error(err);
-          addToast("Connection error.", "error");
-        }
+        addToast("Failed to remove automation.", "error");
       }
+    } catch (err) {
+      console.error(err);
+      addToast("Connection error while removing automation.", "error");
     }
   };
 
@@ -412,6 +498,27 @@ export default function App() {
     dm_message: ''
   });
   const [showConnectModal, setShowConnectModal] = useState(false);
+  const [confirmModalState, setConfirmModalState] = useState({
+    isOpen: false,
+    title: '',
+    message: '',
+    onConfirm: null,
+    confirmText: 'Confirm',
+    cancelText: 'Cancel',
+    variant: 'danger'
+  });
+
+  const requestConfirmation = ({ title, message, onConfirm, confirmText = 'Confirm', variant = 'danger' }) => {
+    setConfirmModalState({
+      isOpen: true,
+      title,
+      message,
+      onConfirm,
+      confirmText,
+      cancelText: 'Cancel',
+      variant
+    });
+  };
 
   // Post Comments Modal state
   const [activeCommentsPost, setActiveCommentsPost] = useState(null);
@@ -664,40 +771,54 @@ export default function App() {
     }
   };
 
-  const handleDisconnectInstagram = async (accId) => {
-    if (!window.confirm("Are you sure you want to disconnect this Instagram account?")) return;
-    try {
-      const res = await fetch(`${API_BASE}/accounts/instagram/${accId}`, {
-        method: 'DELETE',
-        headers: { 'Authorization': `Bearer ${token}` }
-      });
-      if (res.ok) {
-        addToast("Instagram account disconnected successfully", "success");
-        fetchBackendData();
-      } else {
-        addToast("Failed to disconnect Instagram account", "error");
+  const handleDisconnectInstagram = (accId) => {
+    requestConfirmation({
+      title: "Disconnect Instagram Account",
+      message: "Are you sure you want to disconnect this Instagram account?",
+      confirmText: "Disconnect Account",
+      variant: "danger",
+      onConfirm: async () => {
+        try {
+          const res = await fetch(`${API_BASE}/accounts/instagram/${accId}`, {
+            method: 'DELETE',
+            headers: { 'Authorization': `Bearer ${token}` }
+          });
+          if (res.ok) {
+            addToast("Instagram account disconnected successfully", "success");
+            fetchBackendData();
+          } else {
+            addToast("Failed to disconnect Instagram account", "error");
+          }
+        } catch (err) {
+          addToast("Network error while disconnecting account", "error");
+        }
       }
-    } catch (err) {
-      addToast("Network error while disconnecting account", "error");
-    }
+    });
   };
 
-  const handleDisconnectFacebook = async (accId) => {
-    if (!window.confirm("Are you sure you want to disconnect this Facebook Page?")) return;
-    try {
-      const res = await fetch(`${API_BASE}/accounts/facebook/${accId}`, {
-        method: 'DELETE',
-        headers: { 'Authorization': `Bearer ${token}` }
-      });
-      if (res.ok) {
-        addToast("Facebook Page disconnected successfully", "success");
-        fetchBackendData();
-      } else {
-        addToast("Failed to disconnect Facebook Page", "error");
+  const handleDisconnectFacebook = (accId) => {
+    requestConfirmation({
+      title: "Disconnect Facebook Page",
+      message: "Are you sure you want to disconnect this Facebook Page?",
+      confirmText: "Disconnect Page",
+      variant: "danger",
+      onConfirm: async () => {
+        try {
+          const res = await fetch(`${API_BASE}/accounts/facebook/${accId}`, {
+            method: 'DELETE',
+            headers: { 'Authorization': `Bearer ${token}` }
+          });
+          if (res.ok) {
+            addToast("Facebook Page disconnected successfully", "success");
+            fetchBackendData();
+          } else {
+            addToast("Failed to disconnect Facebook Page", "error");
+          }
+        } catch (err) {
+          addToast("Network error while disconnecting page", "error");
+        }
       }
-    } catch (err) {
-      addToast("Network error while disconnecting page", "error");
-    }
+    });
   };
 
   // Facebook Connect Handshake
@@ -1545,9 +1666,9 @@ export default function App() {
   const handleOpenVisualFlowForPost = (post) => {
     if (!post) return;
     
-    // Check if facebook or instagram post based on keys
-    const isFb = post.facebook_account_id !== undefined || ('facebook_account_id' in post);
-    const existing = flows.find(f => isFb ? f.facebook_post_id === post.id : f.instagram_post_id === post.id);
+    const isFb = checkIsFbPost(post);
+    const postIdStr = String(post.id);
+    const existing = flows.find(f => isFb ? String(f.facebook_post_id) === postIdStr : String(f.instagram_post_id) === postIdStr);
     
     if (existing) {
       handleOpenBuilder(existing);
@@ -1559,18 +1680,21 @@ export default function App() {
       const edgeId1 = "edge_trig_rep_" + timestamp;
       const edgeId2 = "edge_rep_dm_" + timestamp;
 
+      const defaultIgAccId = accounts.length > 0 ? accounts[0].id : null;
+      const defaultFbAccId = facebookAccounts.length > 0 ? facebookAccounts[0].id : null;
+
       const newFlow = {
         id: "flow_" + timestamp,
         name: `Post Flow: ${post.caption ? post.caption.slice(0, 20) : 'Post ' + post.id}`,
         is_active: true,
-        instagram_account_id: isFb ? null : post.instagram_account_id,
-        facebook_account_id: isFb ? post.facebook_account_id : null,
-        instagram_post_id: isFb ? null : post.id,
-        facebook_post_id: isFb ? post.id : null,
+        instagram_account_id: isFb ? null : (post.instagram_account_id || defaultIgAccId),
+        facebook_account_id: isFb ? (post.facebook_account_id || defaultFbAccId) : null,
+        instagram_post_id: isFb ? null : String(post.id),
+        facebook_post_id: isFb ? String(post.id) : null,
         nodes: [
-          { id: triggerId, type: "trigger", config: { keywords: [], exact_word: true } },
-          { id: replyId, type: "action_reply", config: { message: "" } },
-          { id: dmId, type: "action_dm", config: { message: "" } }
+          { id: triggerId, type: "trigger", config: { keywords: ["price", "link", "info"], exact_word: false } },
+          { id: replyId, type: "action_reply", config: { message: "Thanks for commenting! Check your DMs 📩" } },
+          { id: dmId, type: "action_dm", config: { message: "Here are the details and link you requested!" } }
         ],
         edges: [
           { id: edgeId1, source_node_id: triggerId, target_node_id: replyId },
@@ -2287,8 +2411,9 @@ export default function App() {
             {(() => {
               const postsReadyToSetup = [...posts, ...facebookPosts].filter(post => {
                 if (skippedPostIds.includes(post.id)) return false;
-                const isFb = post.facebook_account_id !== undefined || ('facebook_account_id' in post);
-                const hasFlow = flows.some(f => isFb ? f.facebook_post_id === post.id : f.instagram_post_id === post.id);
+                const isFb = checkIsFbPost(post);
+                const postIdStr = String(post.id);
+                const hasFlow = flows.some(f => isFb ? String(f.facebook_post_id) === postIdStr : String(f.instagram_post_id) === postIdStr);
                 const hasDirect = post.keyword || post.reply_message || post.dm_message;
                 return !hasFlow && !hasDirect;
               });
@@ -2642,7 +2767,7 @@ export default function App() {
                         ) : (
                           filteredTablePosts.map(item => {
                             const { post, status } = item;
-                            const isFb = post.facebook_account_id !== undefined || ('facebook_account_id' in post);
+                            const isFb = checkIsFbPost(post);
                             const stats = getPostStats(post);
                             
                             return (
@@ -2719,16 +2844,25 @@ export default function App() {
                                     </span>
                                   )}
                                   {status === 'Setup' && (
-                                    <span style={{
-                                      backgroundColor: 'rgba(255, 45, 85, 0.1)',
-                                      border: '1px solid #ff2d55',
-                                      color: '#ff2d55',
-                                      padding: '4px 8px',
-                                      borderRadius: '4px',
-                                      fontSize: '0.75rem',
-                                      fontWeight: '700'
-                                    }}>
-                                      Setup
+                                    <span 
+                                      onClick={() => handleOpenVisualFlowForPost(post)}
+                                      title="Click to setup automation flow for this post"
+                                      style={{
+                                        backgroundColor: 'rgba(255, 45, 85, 0.15)',
+                                        border: '1px solid #ff2d55',
+                                        color: '#ff2d55',
+                                        padding: '4px 8px',
+                                        borderRadius: '4px',
+                                        fontSize: '0.75rem',
+                                        fontWeight: '700',
+                                        cursor: 'pointer',
+                                        display: 'inline-flex',
+                                        alignItems: 'center',
+                                        gap: '4px',
+                                        transition: 'all 0.2s'
+                                      }}
+                                    >
+                                      ⚡ Setup
                                     </span>
                                   )}
                                   {status === 'Paused' && (
@@ -2772,17 +2906,20 @@ export default function App() {
                                     <button
                                       onClick={() => handleOpenVisualFlowForPost(post)}
                                       style={{
-                                        padding: '4px 8px',
+                                        padding: '4px 10px',
                                         borderRadius: '4px',
                                         border: 'none',
-                                        backgroundColor: '#495057',
+                                        backgroundColor: status === 'Setup' ? '#007bff' : '#495057',
                                         color: 'white',
                                         fontSize: '0.75rem',
                                         fontWeight: '600',
-                                        cursor: 'pointer'
+                                        cursor: 'pointer',
+                                        display: 'inline-flex',
+                                        alignItems: 'center',
+                                        gap: '4px'
                                       }}
                                     >
-                                      Edit
+                                      {status === 'Setup' ? '⚡ Setup' : 'Edit'}
                                     </button>
                                     {status !== 'Setup' && (
                                       <button
@@ -2804,9 +2941,13 @@ export default function App() {
                                     {status !== 'Setup' && (
                                       <button
                                         onClick={() => {
-                                          if (confirm("Are you sure you want to remove automation for this post?")) {
-                                            handleRemovePostAutomation(post);
-                                          }
+                                          requestConfirmation({
+                                            title: "Remove Post Automation",
+                                            message: "Are you sure you want to remove automation for this post?",
+                                            confirmText: "Remove Automation",
+                                            variant: "danger",
+                                            onConfirm: () => handleRemovePostAutomation(post)
+                                          });
                                         }}
                                         style={{
                                           padding: '4px 8px',
@@ -3481,38 +3622,131 @@ export default function App() {
                   const matchedFb = facebookAccounts.find(a => a.id === flow.facebook_account_id);
                   const platformName = flow.facebook_account_id ? "Facebook" : "Instagram";
                   const accountName = matchedFb ? matchedFb.name : matchedInsta ? `@${matchedInsta.username}` : "Unlinked";
+                  const linkedPostInfo = getFlowLinkedPost(flow);
+
                   return (
-                    <div key={flow.id} className="card flow-item">
-                      <div className="flow-meta">
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '4px' }}>
-                          <h3 style={{ margin: 0 }}>{flow.name}</h3>
-                          <span className={`badge ${flow.facebook_account_id ? 'badge-primary' : 'badge-success'}`} style={{ fontSize: '0.68rem', padding: '2px 8px' }}>
+                    <div 
+                      key={flow.id} 
+                      className="card flow-item" 
+                      style={{ 
+                        display: 'flex', 
+                        flexDirection: 'column', 
+                        gap: '14px', 
+                        padding: '20px',
+                        width: '100%',
+                        maxWidth: '100%',
+                        boxSizing: 'border-box',
+                        overflow: 'hidden'
+                      }}
+                    >
+                      {/* Flow Header Row */}
+                      <div style={{
+                        display: 'flex',
+                        justifyContent: 'space-between',
+                        alignItems: 'center',
+                        flexWrap: 'wrap',
+                        gap: '12px',
+                        borderBottom: linkedPostInfo ? '1px solid var(--border-color)' : 'none',
+                        paddingBottom: linkedPostInfo ? '14px' : '0',
+                        width: '100%',
+                        minWidth: 0
+                      }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap', flex: '1 1 300px', minWidth: 0 }}>
+                          <h3 style={{ margin: 0, fontSize: '1.05rem', fontWeight: '600' }}>{flow.name}</h3>
+                          <span className={`badge ${flow.facebook_account_id ? 'badge-primary' : 'badge-success'}`} style={{ fontSize: '0.68rem', padding: '2px 8px', whiteSpace: 'nowrap' }}>
                             {platformName} ({accountName})
                           </span>
+                          <span className={`badge ${flow.is_active ? 'badge-success' : 'badge-secondary'}`} style={{ fontSize: '0.68rem', padding: '2px 8px', whiteSpace: 'nowrap' }}>
+                            {flow.is_active ? '● Active' : '○ Paused'}
+                          </span>
+
+                          <div style={{ fontSize: '0.82rem', color: 'var(--text-secondary)', display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap', marginLeft: '4px' }}>
+                            <span style={{ fontSize: '0.78rem', color: 'var(--text-muted)' }}>Triggers:</span>
+                            {flow.nodes
+                              .filter(n => n.type === 'trigger')
+                              .flatMap(n => n.config?.keywords || [])
+                              .map(kw => (
+                                <span key={kw} className="keyword-tag" style={{ fontSize: '0.72rem' }}>{kw}</span>
+                              ))}
+                          </div>
                         </div>
-                        <p>
-                          Triggers on keywords:{' '}
-                          {flow.nodes
-                            .filter(n => n.type === 'trigger')
-                            .flatMap(n => n.config?.keywords || [])
-                            .map(kw => (
-                              <span key={kw} className="keyword-tag">{kw}</span>
-                            ))}
-                        </p>
+
+                        <div style={{ display: 'flex', gap: '10px', alignItems: 'center', flexShrink: 0 }}>
+                          <button 
+                            className={`btn btn-accent ${runningFlowId === flow.id ? 'btn-disabled' : ''}`}
+                            onClick={() => handleRunSingleFlow(flow.id)}
+                            disabled={runningFlowId !== null}
+                            style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.82rem' }}
+                          >
+                            <Play size={14} /> 
+                            {runningFlowId === flow.id ? "Running..." : "Run Flow"}
+                          </button>
+                          <button className="btn btn-secondary" style={{ fontSize: '0.82rem' }} onClick={() => handleOpenBuilder(flow)}>
+                            Edit Visual Flow
+                          </button>
+                          <button className="btn btn-danger" style={{ padding: '8px 10px' }} onClick={() => handleDeleteFlow(flow.id)}>
+                            <Trash2 size={16} />
+                          </button>
+                        </div>
                       </div>
-                      <div style={{ display: 'flex', gap: '12px', alignItems: 'center' }}>
-                        <button 
-                          className={`btn btn-accent ${runningFlowId === flow.id ? 'btn-disabled' : ''}`}
-                          onClick={() => handleRunSingleFlow(flow.id)}
-                          disabled={runningFlowId !== null}
-                          style={{ display: 'flex', alignItems: 'center', gap: '6px' }}
+
+                      {/* Configured Post Banner (Full Width) */}
+                      {linkedPostInfo && (
+                        <div
+                          onClick={() => handleOpenPostOnPlatform(linkedPostInfo)}
+                          style={{
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'space-between',
+                            padding: '12px 16px',
+                            backgroundColor: 'rgba(255, 255, 255, 0.025)',
+                            border: '1px solid rgba(99, 102, 241, 0.25)',
+                            borderRadius: '10px',
+                            width: '100%',
+                            boxSizing: 'border-box',
+                            cursor: 'pointer',
+                            transition: 'all 0.2s ease',
+                            minWidth: 0
+                          }}
+                          className="configured-post-banner"
+                          onMouseEnter={(e) => { e.currentTarget.style.backgroundColor = 'rgba(255, 255, 255, 0.06)'; e.currentTarget.style.borderColor = '#818cf8'; }}
+                          onMouseLeave={(e) => { e.currentTarget.style.backgroundColor = 'rgba(255, 255, 255, 0.025)'; e.currentTarget.style.borderColor = 'rgba(99, 102, 241, 0.25)'; }}
                         >
-                          <Play size={14} /> 
-                          {runningFlowId === flow.id ? "Running..." : "Run Flow"}
-                        </button>
-                        <button className="btn btn-secondary" onClick={() => handleOpenBuilder(flow)}>Edit Visual Flow</button>
-                        <button className="btn btn-danger" style={{ padding: '10px' }} onClick={() => handleDeleteFlow(flow.id)}><Trash2 size={16} /></button>
-                      </div>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '12px', minWidth: 0, flex: 1 }}>
+                            {linkedPostInfo.mediaUrl ? (
+                              <img 
+                                src={linkedPostInfo.mediaUrl} 
+                                alt="Post thumbnail" 
+                                style={{ width: '42px', height: '42px', objectFit: 'cover', borderRadius: '8px', border: '1px solid var(--border-color)', flexShrink: 0 }}
+                                onError={(e) => { e.target.style.display = 'none'; }}
+                              />
+                            ) : (
+                              <div style={{ width: '42px', height: '42px', borderRadius: '8px', backgroundColor: '#1a1b26', border: '1px solid var(--border-color)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.8rem', color: '#9ca3af', flexShrink: 0 }}>
+                                📷
+                              </div>
+                            )}
+                            <div style={{ flex: 1, minWidth: 0, overflow: 'hidden' }}>
+                              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+                                <span style={{ fontSize: '0.75rem', fontWeight: '700', color: '#818cf8', textTransform: 'uppercase', letterSpacing: '0.5px', whiteSpace: 'nowrap' }}>
+                                  📌 CONFIGURED POST
+                                </span>
+                                <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)', whiteSpace: 'nowrap' }}>
+                                  ID: {linkedPostInfo.postId}
+                                </span>
+                                {linkedPostInfo.timestamp && (
+                                  <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)', whiteSpace: 'nowrap' }}>
+                                    • Published {new Date(linkedPostInfo.timestamp).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })}
+                                  </span>
+                                )}
+                              </div>
+                            </div>
+                          </div>
+                          <div style={{ fontSize: '0.82rem', color: '#60a5fa', display: 'inline-flex', alignItems: 'center', gap: '6px', fontWeight: '600', flexShrink: 0 }}>
+                            <span>Open Post on Platform</span>
+                            <span style={{ fontSize: '0.95rem' }}>↗</span>
+                          </div>
+                        </div>
+                      )}
                     </div>
                   );
                 })
@@ -3546,69 +3780,156 @@ export default function App() {
                 }
 
                 return postFlowsList.map(flow => {
-                  const isFb = !!flow.facebook_post_id;
-                  const postId = isFb ? flow.facebook_post_id : flow.instagram_post_id;
-                  const matchedPost = isFb 
-                    ? facebookPosts.find(p => p.id === postId) 
-                    : posts.find(p => p.id === postId);
-                  
-                  const matchedInsta = accounts.find(a => a.id === flow.instagram_account_id);
-                  const matchedFb = facebookAccounts.find(a => a.id === flow.facebook_account_id);
+                  const linkedPostInfo = getFlowLinkedPost(flow);
                   const platformName = flow.facebook_account_id ? "Facebook" : "Instagram";
-                  const accountName = matchedFb ? matchedFb.name : matchedInsta ? `@${matchedInsta.username}` : "Unlinked";
-
+                  
                   return (
-                    <div key={flow.id} className="card flow-item" style={{ display: 'grid', gridTemplateColumns: '1fr auto', gap: '20px', alignItems: 'center' }}>
-                      <div style={{ display: 'flex', gap: '16px', alignItems: 'flex-start' }}>
-                        {matchedPost?.media_url ? (
-                          <img 
-                            src={matchedPost.media_url} 
-                            alt="Post thumbnail" 
-                            style={{ width: '80px', height: '80px', objectFit: 'cover', borderRadius: '8px', border: '1px solid var(--border-color)' }}
-                            onError={(e) => { e.target.style.display = 'none'; }}
-                          />
-                        ) : (
-                          <div style={{ width: '80px', height: '80px', display: 'flex', alignItems: 'center', justifyContent: 'center', backgroundColor: 'var(--card-bg-hover, #2a2b36)', borderRadius: '8px', border: '1px solid var(--border-color)', color: 'var(--text-secondary)', fontSize: '0.7rem' }}>
-                            No Media
-                          </div>
-                        )}
-                        <div>
-                          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '6px' }}>
-                            <h3 style={{ margin: 0 }}>{flow.name}</h3>
-                            <span className={`badge ${flow.facebook_account_id ? 'badge-primary' : 'badge-success'}`} style={{ fontSize: '0.68rem', padding: '2px 8px' }}>
-                              {platformName} ({accountName})
-                            </span>
-                          </div>
-                          
-                          <p style={{ margin: '0 0 6px 0', fontSize: '0.82rem', color: 'var(--text-secondary)', fontStyle: 'italic' }}>
-                            Linked to Post: "{matchedPost?.caption ? (matchedPost.caption.slice(0, 80) + '...') : `Post ID: ${postId}`}"
-                          </p>
+                    <div 
+                      key={flow.id} 
+                      className="card flow-item" 
+                      style={{ 
+                        display: 'flex', 
+                        flexDirection: 'column', 
+                        gap: '16px', 
+                        padding: '20px',
+                        width: '100%',
+                        maxWidth: '100%',
+                        boxSizing: 'border-box',
+                        overflow: 'hidden'
+                      }}
+                    >
+                      {/* Flow Header */}
+                      <div style={{
+                        display: 'flex',
+                        justifyContent: 'space-between',
+                        alignItems: 'center',
+                        flexWrap: 'wrap',
+                        gap: '12px',
+                        borderBottom: '1px solid var(--border-color)',
+                        paddingBottom: '14px',
+                        width: '100%',
+                        minWidth: 0
+                      }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap', flex: '1 1 300px', minWidth: 0 }}>
+                          <h3 style={{ margin: 0, fontSize: '1.1rem', fontWeight: '700', color: 'var(--text-primary)' }}>
+                            {flow.name}
+                          </h3>
+                          <span className={`badge ${flow.facebook_account_id ? 'badge-primary' : 'badge-success'}`} style={{ fontSize: '0.72rem', padding: '3px 10px', whiteSpace: 'nowrap' }}>
+                            {platformName} ({linkedPostInfo?.accountName || 'Connected Channel'})
+                          </span>
+                          <span className={`badge ${flow.is_active ? 'badge-success' : 'badge-secondary'}`} style={{ fontSize: '0.72rem', padding: '3px 10px', whiteSpace: 'nowrap' }}>
+                            {flow.is_active ? '● Active' : '○ Paused'}
+                          </span>
+                        </div>
 
-                          <p style={{ margin: 0, fontSize: '0.82rem' }}>
-                            Triggers on keywords:{' '}
-                            {flow.nodes
-                              .filter(n => n.type === 'trigger')
-                              .flatMap(n => n.config?.keywords || [])
-                              .map(kw => (
-                                <span key={kw} className="keyword-tag" style={{ marginLeft: '4px' }}>{kw}</span>
-                              ))}
-                          </p>
+                        <div style={{ display: 'flex', gap: '10px', alignItems: 'center', flexShrink: 0 }}>
+                          <button 
+                            className={`btn btn-accent ${runningFlowId === flow.id ? 'btn-disabled' : ''}`}
+                            onClick={() => handleRunSingleFlow(flow.id)}
+                            disabled={runningFlowId !== null}
+                            style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.82rem', padding: '7px 14px' }}
+                          >
+                            <Play size={14} /> 
+                            {runningFlowId === flow.id ? "Running..." : "Run Flow"}
+                          </button>
+                          <button className="btn btn-secondary" style={{ fontSize: '0.82rem', padding: '7px 14px' }} onClick={() => handleOpenBuilder(flow)}>
+                            Edit Visual Flow
+                          </button>
+                          <button className="btn btn-danger" style={{ padding: '7px 11px' }} onClick={() => handleDeleteFlow(flow.id)}>
+                            <Trash2 size={16} />
+                          </button>
                         </div>
                       </div>
 
-                      <div style={{ display: 'flex', gap: '12px', alignItems: 'center' }}>
-                        <button 
-                          className={`btn btn-accent ${runningFlowId === flow.id ? 'btn-disabled' : ''}`}
-                          onClick={() => handleRunSingleFlow(flow.id)}
-                          disabled={runningFlowId !== null}
-                          style={{ display: 'flex', alignItems: 'center', gap: '6px' }}
+                      {/* Display Selected Post Card (Clickable to open post on platform) */}
+                      {linkedPostInfo && (
+                        <div
+                          onClick={() => handleOpenPostOnPlatform(linkedPostInfo)}
+                          style={{
+                            display: 'flex',
+                            gap: '16px',
+                            alignItems: 'center',
+                            backgroundColor: 'rgba(255, 255, 255, 0.02)',
+                            border: '1px solid rgba(99, 102, 241, 0.25)',
+                            borderRadius: '12px',
+                            padding: '14px 18px',
+                            width: '100%',
+                            maxWidth: '100%',
+                            boxSizing: 'border-box',
+                            minWidth: 0,
+                            cursor: 'pointer',
+                            transition: 'all 0.2s ease'
+                          }}
+                          onMouseEnter={(e) => { e.currentTarget.style.backgroundColor = 'rgba(255, 255, 255, 0.05)'; e.currentTarget.style.borderColor = '#818cf8'; }}
+                          onMouseLeave={(e) => { e.currentTarget.style.backgroundColor = 'rgba(255, 255, 255, 0.02)'; e.currentTarget.style.borderColor = 'rgba(99, 102, 241, 0.25)'; }}
                         >
-                          <Play size={14} /> 
-                          {runningFlowId === flow.id ? "Running..." : "Run Flow"}
-                        </button>
-                        <button className="btn btn-secondary" onClick={() => handleOpenBuilder(flow)}>Edit Visual Flow</button>
-                        <button className="btn btn-danger" style={{ padding: '10px' }} onClick={() => handleDeleteFlow(flow.id)}><Trash2 size={16} /></button>
-                      </div>
+                          {linkedPostInfo?.mediaUrl ? (
+                            <img 
+                              src={linkedPostInfo.mediaUrl} 
+                              alt="Post thumbnail" 
+                              style={{ 
+                                width: '54px', 
+                                height: '54px', 
+                                objectFit: 'cover', 
+                                borderRadius: '10px', 
+                                border: '1px solid var(--border-color)', 
+                                boxShadow: '0 4px 12px rgba(0,0,0,0.3)', 
+                                flexShrink: 0 
+                              }}
+                              onError={(e) => { e.target.style.display = 'none'; }}
+                            />
+                          ) : (
+                            <div style={{ 
+                              width: '54px', 
+                              height: '54px', 
+                              borderRadius: '10px', 
+                              backgroundColor: '#1a1b26', 
+                              border: '1px solid var(--border-color)', 
+                              display: 'flex', 
+                              flexDirection: 'column', 
+                              alignItems: 'center', 
+                              justifyContent: 'center', 
+                              color: '#9ca3af', 
+                              fontSize: '0.7rem', 
+                              flexShrink: 0 
+                            }}>
+                              <span style={{ fontSize: '1.2rem', marginBottom: '2px' }}>📷</span>
+                              <span>No Media</span>
+                            </div>
+                          )}
+
+                          <div style={{ flex: 1, minWidth: 0, overflow: 'hidden' }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '4px', flexWrap: 'wrap' }}>
+                              <span style={{ fontSize: '0.72rem', fontWeight: '700', color: '#818cf8', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+                                📌 CONFIGURED POST
+                              </span>
+                              <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
+                                ID: {linkedPostInfo?.postId}
+                              </span>
+                              {linkedPostInfo?.timestamp && (
+                                <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
+                                  • Published {new Date(linkedPostInfo.timestamp).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })}
+                                </span>
+                              )}
+                            </div>
+
+                            <div style={{ fontSize: '0.82rem', color: 'var(--text-secondary)', display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap' }}>
+                              <span>Triggers on keywords:</span>
+                              {flow.nodes
+                                .filter(n => n.type === 'trigger')
+                                .flatMap(n => n.config?.keywords || [])
+                                .map(kw => (
+                                  <span key={kw} className="keyword-tag">{kw}</span>
+                                ))}
+                            </div>
+                          </div>
+
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '6px', color: '#60a5fa', fontSize: '0.82rem', fontWeight: '600', flexShrink: 0 }}>
+                            <span>Open Post on Platform</span>
+                            <span style={{ fontSize: '1rem' }}>↗</span>
+                          </div>
+                        </div>
+                      )}
                     </div>
                   );
                 });
@@ -4818,18 +5139,105 @@ export default function App() {
 
 
         {/* Tab 7: Visual Flow Builder (Canvas) */}
-        {activeTab === 'builder' && selectedFlow && (
-          <div>
-            <div className="page-header">
-              <div className="header-title">
-                <h1>Flow Editor: {selectedFlow.name}</h1>
-                <p>Manage automation node graph connections and keyword replies.</p>
+        {activeTab === 'builder' && selectedFlow && (() => {
+          const linkedPostInBuilder = getFlowLinkedPost(selectedFlow);
+          return (
+            <div>
+              <div className="page-header" style={{ marginBottom: linkedPostInBuilder ? '12px' : '24px' }}>
+                <div className="header-title">
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                    <h1>Flow Editor: {selectedFlow.name}</h1>
+                    {linkedPostInBuilder && (
+                      <span className={`badge ${linkedPostInBuilder.isFb ? 'badge-primary' : 'badge-success'}`} style={{ padding: '4px 10px', fontSize: '0.75rem' }}>
+                        {linkedPostInBuilder.platformName} ({linkedPostInBuilder.accountName})
+                      </span>
+                    )}
+                  </div>
+                  <p>Manage automation node graph connections and keyword replies.</p>
+                </div>
+                <div className="header-actions">
+                  <button className="btn btn-secondary" onClick={() => setActiveTab('flows')}>Cancel</button>
+                  <button className="btn btn-primary" onClick={handleSaveFlow}><Save size={16} /> Sync Flow</button>
+                </div>
               </div>
-              <div className="header-actions">
-                <button className="btn btn-secondary" onClick={() => setActiveTab('flows')}>Cancel</button>
-                <button className="btn btn-primary" onClick={handleSaveFlow}><Save size={16} /> Sync Flow</button>
-              </div>
-            </div>
+
+              {/* Prominent Linked Post Banner inside Flow Editor */}
+              {linkedPostInBuilder && (
+                <div 
+                  onClick={() => handleOpenPostOnPlatform(linkedPostInBuilder)} 
+                  className="card" 
+                  style={{
+                    marginBottom: '20px',
+                    padding: '12px 18px',
+                    background: 'linear-gradient(135deg, rgba(30, 41, 59, 0.7) 0%, rgba(15, 23, 42, 0.9) 100%)',
+                    border: '1px solid rgba(99, 102, 241, 0.3)',
+                    borderRadius: '14px',
+                    boxShadow: '0 8px 20px rgba(0,0,0,0.3)',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '16px',
+                    cursor: 'pointer',
+                    transition: 'all 0.2s ease'
+                  }}
+                  onMouseEnter={(e) => { e.currentTarget.style.borderColor = '#818cf8'; }}
+                  onMouseLeave={(e) => { e.currentTarget.style.borderColor = 'rgba(99, 102, 241, 0.3)'; }}
+                >
+                  {linkedPostInBuilder.mediaUrl ? (
+                    <img 
+                      src={linkedPostInBuilder.mediaUrl} 
+                      alt="Post preview" 
+                      style={{ 
+                        width: '46px', 
+                        height: '46px', 
+                        objectFit: 'cover', 
+                        borderRadius: '10px', 
+                        border: '2px solid rgba(255,255,255,0.15)',
+                        boxShadow: '0 4px 12px rgba(0,0,0,0.4)',
+                        flexShrink: 0
+                      }}
+                      onError={(e) => { e.target.style.display = 'none'; }}
+                    />
+                  ) : (
+                    <div style={{ 
+                      width: '46px', 
+                      height: '46px', 
+                      borderRadius: '10px', 
+                      backgroundColor: 'rgba(255,255,255,0.05)', 
+                      border: '1px solid var(--border-color)', 
+                      display: 'flex', 
+                      alignItems: 'center', 
+                      justifyContent: 'center', 
+                      fontSize: '1.2rem',
+                      flexShrink: 0
+                    }}>
+                      📷
+                    </div>
+                  )}
+
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                      <span style={{ fontSize: '0.72rem', fontWeight: '700', letterSpacing: '0.5px', color: '#818cf8', textTransform: 'uppercase' }}>
+                        📌 CONFIGURED FOR POST:
+                      </span>
+                      <span style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>
+                        ID: {linkedPostInBuilder.postId}
+                      </span>
+                      {linkedPostInBuilder.timestamp && (
+                        <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
+                          • Published {new Date(linkedPostInBuilder.timestamp).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })}
+                        </span>
+                      )}
+                    </div>
+                  </div>
+
+                  <span
+                    className="btn btn-secondary"
+                    style={{ fontSize: '0.78rem', padding: '6px 12px', display: 'inline-flex', alignItems: 'center', gap: '4px', flexShrink: 0, color: '#60a5fa' }}
+                  >
+                    Open Post on Platform ↗
+                  </span>
+                </div>
+              )}
 
             <div className="builder-layout">
               {/* Node Graph Canvas Area */}
@@ -4989,6 +5397,45 @@ export default function App() {
                           ))
                       )}
                     </select>
+
+                    {/* Live Sidebar Post Preview */}
+                    {(() => {
+                      const sidebarPost = getFlowLinkedPost(selectedFlow);
+                      if (!sidebarPost) return null;
+                      return (
+                        <div style={{
+                          marginTop: '10px',
+                          padding: '10px',
+                          backgroundColor: 'rgba(255, 255, 255, 0.03)',
+                          border: '1px solid var(--border-color)',
+                          borderRadius: '8px',
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: '10px'
+                        }}>
+                          {sidebarPost.mediaUrl ? (
+                            <img 
+                              src={sidebarPost.mediaUrl} 
+                              alt="Thumbnail" 
+                              style={{ width: '40px', height: '40px', objectFit: 'cover', borderRadius: '6px', border: '1px solid var(--border-color)', flexShrink: 0 }}
+                              onError={(e) => { e.target.style.display = 'none'; }}
+                            />
+                          ) : (
+                            <div style={{ width: '40px', height: '40px', borderRadius: '6px', backgroundColor: '#1f2937', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.65rem', color: '#9ca3af', flexShrink: 0 }}>
+                              📷
+                            </div>
+                          )}
+                          <div style={{ flex: 1, minWidth: 0 }}>
+                            <p style={{ margin: 0, fontSize: '0.78rem', color: 'white', fontWeight: '500', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                              {sidebarPost.caption || `Post ${sidebarPost.postId}`}
+                            </p>
+                            <span style={{ fontSize: '0.7rem', color: 'var(--text-secondary)' }}>
+                              ID: {sidebarPost.postId}
+                            </span>
+                          </div>
+                        </div>
+                      );
+                    })()}
                   </div>
                 </div>
 
@@ -5245,7 +5692,8 @@ export default function App() {
               </div>
             </div>
           </div>
-        )}
+        );
+      })()}
 
         {isGuideOpen && (
           <div className="modal-overlay" style={{
@@ -5724,8 +6172,91 @@ export default function App() {
             </div>
           </div>
         )}
-
       </div>
+
+      {/* Global Custom Confirmation Modal */}
+      {confirmModalState.isOpen && (
+        <div className="modal-overlay" style={{
+          position: 'fixed',
+          top: 0,
+          left: 0,
+          right: 0,
+          bottom: 0,
+          backgroundColor: 'rgba(0, 0, 0, 0.8)',
+          backdropFilter: 'blur(6px)',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          zIndex: 3000,
+          padding: '20px'
+        }}>
+          <div className="card" style={{
+            width: '100%',
+            maxWidth: '420px',
+            backgroundColor: '#161622',
+            border: '1px solid var(--border-color)',
+            borderRadius: '16px',
+            boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.7)',
+            padding: '24px',
+            display: 'flex',
+            flexDirection: 'column',
+            gap: '16px'
+          }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+              <div style={{
+                width: '42px',
+                height: '42px',
+                borderRadius: '50%',
+                backgroundColor: confirmModalState.variant === 'danger' ? 'rgba(255, 45, 85, 0.15)' : 'rgba(0, 123, 255, 0.15)',
+                color: confirmModalState.variant === 'danger' ? '#ff2d55' : '#007bff',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                flexShrink: 0
+              }}>
+                <AlertTriangle size={22} />
+              </div>
+              <div>
+                <h3 style={{ margin: 0, fontSize: '1.15rem', fontWeight: '700', color: 'var(--text-primary)' }}>
+                  {confirmModalState.title || "Confirm Action"}
+                </h3>
+              </div>
+            </div>
+
+            <p style={{ margin: 0, fontSize: '0.9rem', color: 'var(--text-secondary)', lineHeight: '1.5' }}>
+              {confirmModalState.message}
+            </p>
+
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '12px', marginTop: '8px' }}>
+              <button
+                onClick={() => setConfirmModalState(prev => ({ ...prev, isOpen: false }))}
+                className="btn btn-secondary"
+                style={{ padding: '8px 18px', fontSize: '0.85rem', fontWeight: '600' }}
+              >
+                {confirmModalState.cancelText || "Cancel"}
+              </button>
+              <button
+                onClick={() => {
+                  if (confirmModalState.onConfirm) confirmModalState.onConfirm();
+                  setConfirmModalState(prev => ({ ...prev, isOpen: false }));
+                }}
+                style={{
+                  padding: '8px 18px',
+                  fontSize: '0.85rem',
+                  fontWeight: '600',
+                  backgroundColor: confirmModalState.variant === 'danger' ? '#ff2d55' : '#007bff',
+                  color: 'white',
+                  border: 'none',
+                  borderRadius: '6px',
+                  cursor: 'pointer'
+                }}
+              >
+                {confirmModalState.confirmText || "Confirm"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
