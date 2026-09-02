@@ -71,7 +71,12 @@ export default function App() {
       const num = Number(val.trim());
       d = new Date(num < 1e11 ? num * 1000 : num);
     } else {
-      d = new Date(val);
+      let strVal = String(val).trim();
+      // Meta Graph API returns ISO timestamps in UTC. If string lacks timezone offset (e.g. 'Z' or '+00:00'), append 'Z' so JS parses as UTC.
+      if (!strVal.endsWith('Z') && !/[+-]\d{2}:?\d{2}$/.test(strVal)) {
+        strVal += 'Z';
+      }
+      d = new Date(strVal);
     }
 
     if (!d || isNaN(d.getTime()) || d.getFullYear() <= 1970) return 'N/A';
