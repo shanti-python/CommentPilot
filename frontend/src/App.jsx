@@ -152,30 +152,62 @@ export default function App() {
   };
 
   const getPostStats = (post) => {
-    if (!post) return { sent: 0, open: 0, clicks: 0, ctr: '-' };
+    if (!post) return { sent: 0, open: 0, clicks: 0, ctr: '0%' };
     const status = getPostStatus(post);
     if (status === 'Setup') {
       return { sent: 0, open: 0, clicks: 0, ctr: '-' };
     }
-    
-    // Seeded random numbers based on post ID
-    let hash = 0;
-    const str = String(post.id);
-    for (let i = 0; i < str.length; i++) {
-      hash = str.charCodeAt(i) + ((hash << 5) - hash);
-    }
-    hash = Math.abs(hash);
-    
-    const sent = (hash % 150) + 1;
-    const open = Math.floor(sent * (0.7 + (hash % 25) / 100));
-    const clicks = Math.min(open, Math.floor(open * (0.6 + (hash % 35) / 100)));
+
+    const postIdStr = String(post.id);
+
+    // Gather all logs corresponding to this specific post ID
+    const postLogs = (logs || []).filter(log => {
+      const comment = (comments || []).find(c => String(c.comment_id) === String(log.comment_id));
+      if (comment && (String(comment.media_id) === postIdStr || String(comment.post_id) === postIdStr)) {
+        return true;
+      }
+      if (String(log.details?.media_id) === postIdStr || String(log.details?.post_id) === postIdStr) {
+        return true;
+      }
+      if (log.flow_id) {
+        const flow = (flows || []).find(f => f.id === log.flow_id);
+        if (flow && (String(flow.instagram_post_id) === postIdStr || String(flow.facebook_post_id) === postIdStr)) {
+          return true;
+        }
+      }
+      return false;
+    });
+
+    // Count actual comments belonging to this post that were processed
+    const postComments = (comments || []).filter(c => String(c.media_id) === postIdStr || String(c.post_id) === postIdStr);
+    const processedComments = postComments.filter(c => c.processed || c.ai_replied || c.status === 'replied');
+
+    // SENT: Real count of sent actions (DMs + public replies) from logs or processed comments count
+    const dmsSentLogs = postLogs.filter(l => (l.action_executed === 'DM_SENT' || l.action_executed === 'DM_REPLY') && l.status === 'Success').length;
+    const repliesSentLogs = postLogs.filter(l => (l.action_executed === 'REPLY_SENT' || l.action_executed === 'PUBLIC_REPLY') && l.status === 'Success').length;
+    const totalSuccessfulLogs = postLogs.filter(l => l.status === 'Success').length;
+
+    const sent = Math.max(dmsSentLogs + repliesSentLogs, totalSuccessfulLogs, processedComments.length);
+
+    // OPEN: Delivered/Opened DMs or replies
+    const open = Math.min(sent, postLogs.filter(l => l.status === 'Success').length || sent);
+
+    // CLICKS: Tracked link clicks / interaction triggers
+    const clicks = postLogs.filter(l => 
+      l.action_executed === 'LINK_CLICKED' || 
+      l.action_executed === 'CLICK' || 
+      l.details?.clicked || 
+      l.details?.link_clicked
+    ).length;
+
+    // CTR: Calculated Click-Through Rate
     const ctrVal = sent > 0 ? Math.round((clicks / sent) * 100) : 0;
-    
+
     return {
       sent,
       open,
       clicks,
-      ctr: `${ctrVal}%`
+      ctr: sent > 0 ? `${ctrVal}%` : '0%'
     };
   };
 
