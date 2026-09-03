@@ -181,6 +181,21 @@ class AutomationFlowRepository(BaseRepository[AutomationFlow]):
         )
         return result.scalars().all()
 
+    async def get_unresolved_future_flows(self, db: AsyncSession) -> Sequence[AutomationFlow]:
+        """Return all active future flows that are still pending resolution (no real post linked yet)."""
+        result = await db.execute(
+            select(AutomationFlow).filter(
+                AutomationFlow.is_future_flow == True,
+                AutomationFlow.is_active == True,
+                AutomationFlow.future_flow_status == "pending",
+                # Only flows that do NOT already have a real post linked
+                AutomationFlow.instagram_post_id == None,
+                AutomationFlow.facebook_post_id == None,
+            )
+        )
+        return result.scalars().all()
+
+
 
 class AutomationLogRepository(BaseRepository[AutomationLog]):
     def __init__(self):

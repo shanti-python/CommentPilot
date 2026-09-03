@@ -1,6 +1,6 @@
 import uuid
 import datetime
-from sqlalchemy import Column, Integer, String, Boolean, DateTime, ForeignKey, JSON
+from sqlalchemy import Column, Integer, String, Boolean, DateTime, ForeignKey, JSON, Text
 from sqlalchemy.orm import relationship
 from app.db.base_class import Base
 
@@ -17,6 +17,20 @@ class AutomationFlow(Base):
     is_active = Column(Boolean, default=True)
     created_at = Column(DateTime, default=datetime.datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.datetime.utcnow, onupdate=datetime.datetime.utcnow)
+
+    # --- Future Flow Fields ---
+    # When True, this flow is waiting for a not-yet-published post to appear.
+    is_future_flow = Column(Boolean, default=False, nullable=False)
+    # User-provided snippet of the upcoming post caption (used for fuzzy matching).
+    future_post_caption = Column(Text, nullable=True)
+    # Optional: user-expected publish timestamp to help narrow matching window.
+    future_post_scheduled_at = Column(DateTime, nullable=True)
+    # Tracks the resolution status: 'pending' | 'resolved' | 'failed'
+    future_flow_status = Column(String(20), default="pending", nullable=True)
+    # Last time we ran a scan for this future flow's post
+    future_flow_last_scanned_at = Column(DateTime, nullable=True)
+    # Apply to all future posts continuously
+    apply_to_all_future_posts = Column(Boolean, default=False, nullable=True)
 
     instagram_account = relationship("InstagramAccount", back_populates="flows")
     facebook_account = relationship("FacebookAccount", back_populates="flows")

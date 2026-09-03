@@ -32,6 +32,12 @@ async def lifespan(app: FastAPI):
         await conn.execute(text("ALTER TABLE posts ADD COLUMN IF NOT EXISTS thumbnail_url TEXT;"))
         await conn.execute(text("ALTER TABLE automation_flows ADD COLUMN IF NOT EXISTS instagram_post_id VARCHAR;"))
         await conn.execute(text("ALTER TABLE automation_flows ADD COLUMN IF NOT EXISTS facebook_post_id VARCHAR;"))
+        await conn.execute(text("ALTER TABLE automation_flows ADD COLUMN IF NOT EXISTS is_future_flow BOOLEAN DEFAULT FALSE;"))
+        await conn.execute(text("ALTER TABLE automation_flows ADD COLUMN IF NOT EXISTS future_post_caption TEXT;"))
+        await conn.execute(text("ALTER TABLE automation_flows ADD COLUMN IF NOT EXISTS future_post_scheduled_at TIMESTAMP;"))
+        await conn.execute(text("ALTER TABLE automation_flows ADD COLUMN IF NOT EXISTS future_flow_status VARCHAR;"))
+        await conn.execute(text("ALTER TABLE automation_flows ADD COLUMN IF NOT EXISTS future_flow_last_scanned_at TIMESTAMP;"))
+        await conn.execute(text("ALTER TABLE automation_flows ADD COLUMN IF NOT EXISTS apply_to_all_future_posts BOOLEAN DEFAULT FALSE;"))
         await conn.execute(text("UPDATE posts SET timestamp = CURRENT_TIMESTAMP WHERE timestamp IS NULL;"))
         await conn.execute(text("UPDATE facebook_posts SET timestamp = CURRENT_TIMESTAMP WHERE timestamp IS NULL;"))
         

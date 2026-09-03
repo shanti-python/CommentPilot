@@ -91,6 +91,8 @@ export default function App() {
   const demoMode = false;
   const [isRunningAutomation, setIsRunningAutomation] = useState(false);
   const [runningFlowId, setRunningFlowId] = useState(null);
+  const [scanningFlowId, setScanningFlowId] = useState(null);
+  const [isFeaturesDropdownOpen, setIsFeaturesDropdownOpen] = useState(false);
   const [isGuideOpen, setIsGuideOpen] = useState(false);
   const [isAuthenticated, setIsAuthenticated] = useState(!!localStorage.getItem('authToken'));
   const [email, setEmail] = useState('admin@insta-automator.com');
@@ -1576,6 +1578,34 @@ export default function App() {
     }
   };
 
+  const handleScanFutureFlow = async (flowId) => {
+    if (!flowId) return;
+    setScanningFlowId(flowId);
+    try {
+      const res = await fetch(`${API_BASE}/automation/${flowId}/scan-for-post`, {
+        method: 'POST',
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+      const data = await res.json();
+      if (res.ok) {
+        if (data.status === 'resolved') {
+          addToast(`✅ Future Flow matched! Linked to post: ${data.matched_post_id}`, 'success');
+        } else if (data.status === 'already_resolved') {
+          addToast('This Future Flow is already resolved.', 'info');
+        } else {
+          addToast(`⏳ No match found yet (scanned ${data.posts_scanned || 0} posts). Will retry automatically.`, 'warning');
+        }
+        await fetchBackendData();
+      } else {
+        addToast(data.detail || 'Scan failed. Please try again.', 'error');
+      }
+    } catch (err) {
+      addToast('Failed to connect to scan endpoint.', 'error');
+    } finally {
+      setScanningFlowId(null);
+    }
+  };
+
   const handleOpenComments = async (post) => {
     setActiveCommentsPost(post);
     setPostComments([]);
@@ -1787,6 +1817,45 @@ export default function App() {
     handleOpenBuilder(newFlow);
   };
 
+  const handleCreateFutureFlow = () => {
+    if (accounts.length === 0 && facebookAccounts.length === 0) {
+      addToast("Please connect an Instagram or Facebook Account first.", "warning");
+      return;
+    }
+    const timestamp = Date.now();
+    const triggerId = "node_trig_" + timestamp;
+    const replyId = "node_rep_" + timestamp;
+    const dmId = "node_dm_" + timestamp;
+    const edgeId1 = "edge_trig_rep_" + timestamp;
+    const edgeId2 = "edge_rep_dm_" + timestamp;
+
+    const defaultInstaId = accounts[0]?.id || null;
+    const defaultFbId = !defaultInstaId ? (facebookAccounts[0]?.id || null) : null;
+
+    const newFlow = {
+      id: "flow_" + timestamp,
+      name: "Future Post Automation " + (flows.filter(f => f.is_future_flow).length + 1),
+      is_active: true,
+      instagram_account_id: defaultInstaId,
+      facebook_account_id: defaultFbId,
+      is_future_flow: true,
+      future_post_caption: "",
+      future_flow_status: "pending",
+      nodes: [
+        { id: triggerId, type: "trigger", config: { keywords: [], exact_word: true } },
+        { id: replyId, type: "action_reply", config: { message: "" } },
+        { id: dmId, type: "action_dm", config: { message: "" } }
+      ],
+      edges: [
+        { id: edgeId1, source_node_id: triggerId, target_node_id: replyId },
+        { id: edgeId2, source_node_id: replyId, target_node_id: dmId }
+      ]
+    };
+
+    setFlows(prev => [...prev, newFlow]);
+    handleOpenBuilder(newFlow);
+  };
+
   const handleAddNode = (type) => {
     const id = "node_" + Date.now();
     let config = {};
@@ -1835,7 +1904,11 @@ export default function App() {
       name: selectedFlow.name,
       is_active: selectedFlow.is_active,
       nodes: builderNodes,
-      edges: builderEdges
+      edges: builderEdges,
+      // Future flow fields
+      is_future_flow: selectedFlow.is_future_flow || false,
+      future_post_caption: selectedFlow.future_post_caption || null,
+      future_post_scheduled_at: selectedFlow.future_post_scheduled_at || null,
     };
 
     if (demoMode) {
@@ -2211,11 +2284,19 @@ export default function App() {
           <div className={`nav-item ${activeTab === 'posts' ? 'active' : ''}`} onClick={() => setActiveTab('posts')}>
             <FileText size={18} /> Media & Feed
           </div>
-          <div className={`nav-item ${activeTab === 'flows' ? 'active' : ''}`} onClick={() => setActiveTab('flows')}>
-            <GitFork size={18} /> Automation Flows
+
+          <div style={{ margin: '14px 0 4px 16px', fontSize: '0.7rem', fontWeight: '700', color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.6px' }}>
+            Features
           </div>
-          <div className={`nav-item ${activeTab === 'post_flows' ? 'active' : ''}`} onClick={() => setActiveTab('post_flows')}>
-            <Link2 size={18} /> Post-Specific Flows
+          <div className={`nav-item ${activeTab === 'post_flows' ? 'active' : ''}`} onClick={() => setActiveTab('post_flows')} style={{ paddingLeft: '22px' }}>
+            <Link2 size={18} /> Post Specific Flow
+          </div>
+          <div className={`nav-item ${activeTab === 'future_flows' ? 'active' : ''}`} onClick={() => setActiveTab('future_flows')} style={{ paddingLeft: '22px' }}>
+            <Clock size={18} /> Future Post
+          </div>
+
+          <div className={`nav-item ${activeTab === 'flows' ? 'active' : ''}`} onClick={() => setActiveTab('flows')} style={{ marginTop: '8px' }}>
+            <GitFork size={18} /> All Automation Flows
           </div>
           <div className={`nav-item ${activeTab === 'comments' ? 'active' : ''}`} onClick={() => setActiveTab('comments')}>
             <MessageSquare size={18} /> Comment Ingestion
@@ -2375,76 +2456,171 @@ export default function App() {
                 </span>
               </button>
 
-              <button
-                onClick={() => setActiveTab('flows')}
-                style={{
-                  background: 'none',
-                  border: 'none',
-                  color: activeTab === 'flows' ? '#007bff' : 'var(--text-secondary)',
-                  fontWeight: activeTab === 'flows' ? '700' : '500',
-                  fontSize: '0.92rem',
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '8px',
-                  cursor: 'pointer',
-                  padding: '6px 12px',
-                  borderRadius: '6px',
-                  transition: 'all 0.2s'
-                }}
-              >
-                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                  <circle cx="12" cy="12" r="3"></circle>
-                  <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"></path>
-                </svg>
-                Features
-              </button>
+              {/* Features Dropdown Menu */}
+              <div style={{ position: 'relative' }}>
+                <button
+                  onClick={() => setIsFeaturesDropdownOpen(!isFeaturesDropdownOpen)}
+                  style={{
+                    background: (activeTab === 'post_flows' || activeTab === 'future_flows' || isFeaturesDropdownOpen) ? 'rgba(0, 123, 255, 0.12)' : 'none',
+                    border: (activeTab === 'post_flows' || activeTab === 'future_flows' || isFeaturesDropdownOpen) ? '1px solid rgba(0, 123, 255, 0.3)' : '1px solid transparent',
+                    color: (activeTab === 'post_flows' || activeTab === 'future_flows' || isFeaturesDropdownOpen) ? '#60a5fa' : 'var(--text-secondary)',
+                    fontWeight: (activeTab === 'post_flows' || activeTab === 'future_flows') ? '700' : '500',
+                    fontSize: '0.92rem',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '8px',
+                    cursor: 'pointer',
+                    padding: '6px 14px',
+                    borderRadius: '8px',
+                    transition: 'all 0.2s ease'
+                  }}
+                >
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <circle cx="12" cy="12" r="3"></circle>
+                    <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"></path>
+                  </svg>
+                  Features
+                  <span style={{ fontSize: '0.75rem', opacity: 0.8, transform: isFeaturesDropdownOpen ? 'rotate(180deg)' : 'none', transition: 'transform 0.2s' }}>▼</span>
+                </button>
+
+                {isFeaturesDropdownOpen && (
+                  <div style={{
+                    position: 'absolute',
+                    top: 'calc(100% + 8px)',
+                    right: 0,
+                    width: '320px',
+                    backgroundColor: '#111827',
+                    border: '1px solid rgba(255, 255, 255, 0.12)',
+                    borderRadius: '12px',
+                    padding: '8px',
+                    boxShadow: '0 20px 40px rgba(0, 0, 0, 0.5)',
+                    zIndex: 1000,
+                    display: 'flex',
+                    flexDirection: 'column',
+                    gap: '4px'
+                  }}>
+                    <div style={{ padding: '6px 12px 4px', fontSize: '0.7rem', fontWeight: '700', color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.6px' }}>
+                      AUTOMATION FEATURES
+                    </div>
+
+                    {/* Option 1: Post Specific Flow */}
+                    <div
+                      onClick={() => {
+                        setActiveTab('post_flows');
+                        setIsFeaturesDropdownOpen(false);
+                      }}
+                      style={{
+                        display: 'flex',
+                        alignItems: 'flex-start',
+                        gap: '12px',
+                        padding: '12px',
+                        borderRadius: '8px',
+                        cursor: 'pointer',
+                        backgroundColor: activeTab === 'post_flows' ? 'rgba(99, 102, 241, 0.15)' : 'transparent',
+                        transition: 'background-color 0.15s ease'
+                      }}
+                      onMouseEnter={(e) => e.currentTarget.style.backgroundColor = 'rgba(255, 255, 255, 0.06)'}
+                      onMouseLeave={(e) => e.currentTarget.style.backgroundColor = activeTab === 'post_flows' ? 'rgba(99, 102, 241, 0.15)' : 'transparent'}
+                    >
+                      <div style={{ padding: '8px', borderRadius: '6px', backgroundColor: 'rgba(99, 102, 241, 0.2)', color: '#818cf8', flexShrink: 0 }}>
+                        <Link2 size={18} />
+                      </div>
+                      <div>
+                        <div style={{ fontSize: '0.9rem', fontWeight: '600', color: 'white', marginBottom: '2px' }}>
+                          Post Specific Flow
+                        </div>
+                        <div style={{ fontSize: '0.78rem', color: 'var(--text-secondary)', lineHeight: '1.3' }}>
+                          Run the automation flow on a specific existing post.
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Option 2: Future Post */}
+                    <div
+                      onClick={() => {
+                        setActiveTab('future_flows');
+                        setIsFeaturesDropdownOpen(false);
+                      }}
+                      style={{
+                        display: 'flex',
+                        alignItems: 'flex-start',
+                        gap: '12px',
+                        padding: '12px',
+                        borderRadius: '8px',
+                        cursor: 'pointer',
+                        backgroundColor: activeTab === 'future_flows' ? 'rgba(217, 119, 6, 0.15)' : 'transparent',
+                        transition: 'background-color 0.15s ease'
+                      }}
+                      onMouseEnter={(e) => e.currentTarget.style.backgroundColor = 'rgba(255, 255, 255, 0.06)'}
+                      onMouseLeave={(e) => e.currentTarget.style.backgroundColor = activeTab === 'future_flows' ? 'rgba(217, 119, 6, 0.15)' : 'transparent'}
+                    >
+                      <div style={{ padding: '8px', borderRadius: '6px', backgroundColor: 'rgba(217, 119, 6, 0.2)', color: '#f59e0b', flexShrink: 0 }}>
+                        <Clock size={18} />
+                      </div>
+                      <div>
+                        <div style={{ fontSize: '0.9rem', fontWeight: '600', color: 'white', marginBottom: '2px', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                          Future Post
+                          <span style={{ fontSize: '0.65rem', padding: '1px 6px', borderRadius: '4px', backgroundColor: '#d97706', color: 'white', fontWeight: '700' }}>NEW</span>
+                        </div>
+                        <div style={{ fontSize: '0.78rem', color: 'var(--text-secondary)', lineHeight: '1.3' }}>
+                          Create a flow for an upcoming post before it is published.
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </div>
+
             </div>
           </div>
 
-          {/* Sync Feed Bar */}
-          <div style={{
-            borderTop: '1px solid var(--border-color)',
-            padding: '12px 32px',
-            display: 'flex',
-            alignItems: 'center',
-            gap: '12px',
-          }}>
-            <button
-              onClick={handleSyncPosts}
-              disabled={isSyncingPosts}
-              style={{
-                padding: '8px 16px',
-                borderRadius: '6px',
-                border: 'none',
-                backgroundColor: '#007bff',
-                color: 'white',
-                fontSize: '0.85rem',
-                fontWeight: '600',
-                cursor: isSyncingPosts ? 'not-allowed' : 'pointer',
-                display: 'flex',
-                alignItems: 'center',
-                gap: '8px',
-                opacity: isSyncingPosts ? 0.7 : 1
-              }}
-            >
-              <svg 
-                width="14" 
-                height="14" 
-                viewBox="0 0 24 24" 
-                fill="none" 
-                stroke="currentColor" 
-                strokeWidth="2.5" 
-                style={isSyncingPosts ? { animation: 'spin 1s linear infinite' } : {}}
+          {/* Sync Feed Bar (Only shown on Posts & Reels and Dashboard tabs) */}
+          {(activeTab === 'posts' || activeTab === 'dashboard') && (
+            <div style={{
+              borderTop: '1px solid var(--border-color)',
+              padding: '12px 32px',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '12px',
+            }}>
+              <button
+                onClick={handleSyncPosts}
+                disabled={isSyncingPosts}
+                style={{
+                  padding: '8px 16px',
+                  borderRadius: '6px',
+                  border: 'none',
+                  backgroundColor: '#007bff',
+                  color: 'white',
+                  fontSize: '0.85rem',
+                  fontWeight: '600',
+                  cursor: isSyncingPosts ? 'not-allowed' : 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '8px',
+                  opacity: isSyncingPosts ? 0.7 : 1
+                }}
               >
-                <path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.67"></path>
-              </svg>
-              Check for new posts
-            </button>
-            <span style={{ fontSize: '0.85rem', color: 'var(--text-secondary)' }}>
-              {isSyncingPosts ? "Syncing feed from platforms..." : "Last synced 10 minutes ago"}
-            </span>
-          </div>
+                <svg 
+                  width="14" 
+                  height="14" 
+                  viewBox="0 0 24 24" 
+                  fill="none" 
+                  stroke="currentColor" 
+                  strokeWidth="2.5" 
+                  style={isSyncingPosts ? { animation: 'spin 1s linear infinite' } : {}}
+                >
+                  <path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.67"></path>
+                </svg>
+                Check for new posts
+              </button>
+              <span style={{ fontSize: '0.85rem', color: 'var(--text-secondary)' }}>
+                {isSyncingPosts ? "Syncing feed from platforms..." : "Last synced 10 minutes ago"}
+              </span>
+            </div>
+          )}
         </div>
+
 
         {/* Tab 1: Dashboard */}
         {activeTab === 'dashboard' && (
@@ -3700,6 +3876,22 @@ export default function App() {
                           <span className={`badge ${flow.is_active ? 'badge-success' : 'badge-secondary'}`} style={{ fontSize: '0.68rem', padding: '2px 8px', whiteSpace: 'nowrap' }}>
                             {flow.is_active ? '● Active' : '○ Paused'}
                           </span>
+                          {flow.is_future_flow && (
+                            <span className="badge" style={{
+                              fontSize: '0.68rem',
+                              padding: '2px 8px',
+                              whiteSpace: 'nowrap',
+                              background: flow.future_flow_status === 'resolved'
+                                ? 'linear-gradient(135deg, #059669, #047857)'
+                                : 'linear-gradient(135deg, #d97706, #b45309)',
+                              color: 'white',
+                              borderRadius: '4px',
+                              fontWeight: '700',
+                              letterSpacing: '0.2px'
+                            }}>
+                              {flow.future_flow_status === 'resolved' ? '✅ Future Flow (Resolved)' : '⏳ Future Flow (Awaiting)'}
+                            </span>
+                          )}
 
                           <div style={{ fontSize: '0.82rem', color: 'var(--text-secondary)', display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap', marginLeft: '4px' }}>
                             <span style={{ fontSize: '0.78rem', color: 'var(--text-muted)' }}>Triggers:</span>
@@ -3713,6 +3905,17 @@ export default function App() {
                         </div>
 
                         <div style={{ display: 'flex', gap: '10px', alignItems: 'center', flexShrink: 0 }}>
+                          {/* Scan Now button for pending future flows */}
+                          {flow.is_future_flow && flow.future_flow_status === 'pending' && (
+                            <button
+                              className={`btn ${scanningFlowId === flow.id ? 'btn-disabled' : 'btn-secondary'}`}
+                              onClick={() => handleScanFutureFlow(flow.id)}
+                              disabled={scanningFlowId !== null}
+                              style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.82rem', border: '1px solid #d97706', color: '#d97706' }}
+                            >
+                              {scanningFlowId === flow.id ? '🔄 Scanning...' : '🔍 Scan Now'}
+                            </button>
+                          )}
                           <button 
                             className={`btn btn-accent ${runningFlowId === flow.id ? 'btn-disabled' : ''}`}
                             onClick={() => handleRunSingleFlow(flow.id)}
@@ -3730,6 +3933,50 @@ export default function App() {
                           </button>
                         </div>
                       </div>
+
+                      {/* Future Flow Awaiting Banner */}
+                      {flow.is_future_flow && flow.future_flow_status === 'pending' && (
+                        <div style={{
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: '14px',
+                          padding: '12px 16px',
+                          background: 'linear-gradient(135deg, rgba(217, 119, 6, 0.08), rgba(180, 83, 9, 0.05))',
+                          border: '1px solid rgba(217, 119, 6, 0.35)',
+                          borderRadius: '10px',
+                          width: '100%',
+                          boxSizing: 'border-box',
+                        }}>
+                          <div style={{ fontSize: '1.8rem', flexShrink: 0 }}>⏳</div>
+                          <div style={{ flex: 1, minWidth: 0 }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '4px', flexWrap: 'wrap' }}>
+                              <span style={{ fontSize: '0.75rem', fontWeight: '700', color: '#d97706', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+                                AWAITING POST PUBLICATION
+                              </span>
+                            </div>
+                            {flow.future_post_caption && (
+                              <p style={{ margin: '0 0 4px 0', fontSize: '0.82rem', color: 'var(--text-secondary)' }}>
+                                <strong style={{ color: '#e5e7eb' }}>Caption hint:</strong> "{flow.future_post_caption.slice(0, 80)}{flow.future_post_caption.length > 80 ? '...' : ''}"
+                              </p>
+                            )}
+                            {flow.future_post_scheduled_at && (
+                              <p style={{ margin: '0 0 4px 0', fontSize: '0.75rem', color: 'var(--text-muted)' }}>
+                                📅 Expected: {new Date(flow.future_post_scheduled_at).toLocaleString()}
+                              </p>
+                            )}
+                            {flow.future_flow_last_scanned_at && (
+                              <p style={{ margin: 0, fontSize: '0.72rem', color: 'var(--text-muted)' }}>
+                                🔍 Last scanned: {new Date(flow.future_flow_last_scanned_at).toLocaleString()}
+                              </p>
+                            )}
+                            {!flow.future_flow_last_scanned_at && (
+                              <p style={{ margin: 0, fontSize: '0.72rem', color: 'var(--text-muted)' }}>
+                                Auto-scan runs every 5 minutes. Click "Scan Now" to check immediately.
+                              </p>
+                            )}
+                          </div>
+                        </div>
+                      )}
 
                       {/* Configured Post Banner (Full Width) */}
                       {linkedPostInfo && (
@@ -3979,7 +4226,206 @@ export default function App() {
           </div>
         )}
 
+        {/* Tab 4.6: Future Post Automation Flows */}
+        {activeTab === 'future_flows' && (
+          <div>
+            <div className="page-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '16px' }}>
+              <div className="header-title">
+                <h1>⏳ Future Post Automation</h1>
+                <p>Pre-configure comment & DM automation workflows for scheduled or upcoming social media posts before they are published.</p>
+              </div>
+              <button 
+                className="btn btn-primary" 
+                onClick={handleCreateFutureFlow}
+                style={{ display: 'flex', alignItems: 'center', gap: '8px', background: 'linear-gradient(135deg, #d97706, #b45309)', border: 'none' }}
+              >
+                <Plus size={16} /> Create Future Post Flow
+              </button>
+            </div>
+
+            <div className="flow-list">
+              {(() => {
+                const futureFlowsList = flows.filter(f => f.is_future_flow);
+                if (futureFlowsList.length === 0) {
+                  return (
+                    <div className="card" style={{ textAlign: 'center', padding: '48px', color: 'var(--text-secondary)' }}>
+                      <div style={{ fontSize: '3rem', marginBottom: '12px' }}>⏳</div>
+                      <h3 style={{ color: 'white', margin: '0 0 8px 0' }}>No Future Post Flows Configured</h3>
+                      <p style={{ maxWidth: '520px', margin: '0 auto 20px auto', lineHeight: '1.5' }}>
+                        Set up automation in advance for upcoming Reels or scheduled posts. The system continuously scans and activates the flow once the post is published.
+                      </p>
+                      <button className="btn btn-primary" onClick={handleCreateFutureFlow} style={{ background: 'linear-gradient(135deg, #d97706, #b45309)', border: 'none' }}>
+                        + Create First Future Post Flow
+                      </button>
+                    </div>
+                  );
+                }
+
+                return futureFlowsList.map(flow => {
+                  const linkedPostInfo = getFlowLinkedPost(flow);
+                  const platformName = flow.facebook_account_id ? "Facebook" : "Instagram";
+                  const matchedInsta = accounts.find(a => a.id === flow.instagram_account_id);
+                  const matchedFb = facebookAccounts.find(a => a.id === flow.facebook_account_id);
+                  const accountName = matchedFb ? matchedFb.name : matchedInsta ? `@${matchedInsta.username}` : "Connected Channel";
+
+                  return (
+                    <div 
+                      key={flow.id} 
+                      className="card flow-item" 
+                      style={{ 
+                        display: 'flex', 
+                        flexDirection: 'column', 
+                        gap: '16px', 
+                        padding: '20px',
+                        width: '100%',
+                        maxWidth: '100%',
+                        boxSizing: 'border-box',
+                        overflow: 'hidden'
+                      }}
+                    >
+                      {/* Flow Header */}
+                      <div style={{
+                        display: 'flex',
+                        justifyContent: 'space-between',
+                        alignItems: 'center',
+                        flexWrap: 'wrap',
+                        gap: '12px',
+                        borderBottom: '1px solid var(--border-color)',
+                        paddingBottom: '14px',
+                        width: '100%',
+                        minWidth: 0
+                      }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap', flex: '1 1 300px', minWidth: 0 }}>
+                          <h3 style={{ margin: 0, fontSize: '1.1rem', fontWeight: '700', color: 'var(--text-primary)' }}>
+                            {flow.name}
+                          </h3>
+                          <span className={`badge ${flow.facebook_account_id ? 'badge-primary' : 'badge-success'}`} style={{ fontSize: '0.72rem', padding: '3px 10px', whiteSpace: 'nowrap' }}>
+                            {platformName} ({accountName})
+                          </span>
+                          <span className="badge" style={{
+                            fontSize: '0.72rem',
+                            padding: '3px 10px',
+                            whiteSpace: 'nowrap',
+                            background: flow.future_flow_status === 'resolved'
+                              ? 'linear-gradient(135deg, #059669, #047857)'
+                              : 'linear-gradient(135deg, #d97706, #b45309)',
+                            color: 'white',
+                            fontWeight: '700'
+                          }}>
+                            {flow.future_flow_status === 'resolved' ? '✅ Future Flow (Resolved)' : '⏳ Future Flow (Awaiting Post)'}
+                          </span>
+                        </div>
+
+                        <div style={{ display: 'flex', gap: '10px', alignItems: 'center', flexShrink: 0 }}>
+                          {flow.future_flow_status !== 'resolved' && (
+                            <button
+                              className={`btn ${scanningFlowId === flow.id ? 'btn-disabled' : 'btn-secondary'}`}
+                              onClick={() => handleScanFutureFlow(flow.id)}
+                              disabled={scanningFlowId !== null}
+                              style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.82rem', border: '1px solid #d97706', color: '#d97706' }}
+                            >
+                              {scanningFlowId === flow.id ? '🔄 Scanning...' : '🔍 Scan Now'}
+                            </button>
+                          )}
+                          <button 
+                            className={`btn btn-accent ${runningFlowId === flow.id ? 'btn-disabled' : ''}`}
+                            onClick={() => handleRunSingleFlow(flow.id)}
+                            disabled={runningFlowId !== null}
+                            style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.82rem', padding: '7px 14px' }}
+                          >
+                            <Play size={14} /> 
+                            {runningFlowId === flow.id ? "Running..." : "Run Flow"}
+                          </button>
+                          <button className="btn btn-secondary" style={{ fontSize: '0.82rem', padding: '7px 14px' }} onClick={() => handleOpenBuilder(flow)}>
+                            Edit Visual Flow
+                          </button>
+                          <button className="btn btn-danger" style={{ padding: '7px 11px' }} onClick={() => handleDeleteFlow(flow.id)}>
+                            <Trash2 size={16} />
+                          </button>
+                        </div>
+                      </div>
+
+                      {/* Status Banner */}
+                      {flow.future_flow_status !== 'resolved' ? (
+                        <div style={{
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: '14px',
+                          padding: '14px 18px',
+                          background: 'linear-gradient(135deg, rgba(217, 119, 6, 0.08), rgba(180, 83, 9, 0.04))',
+                          border: '1px solid rgba(217, 119, 6, 0.35)',
+                          borderRadius: '12px',
+                          width: '100%',
+                          boxSizing: 'border-box',
+                        }}>
+                          <div style={{ fontSize: '2rem', flexShrink: 0 }}>⏳</div>
+                          <div style={{ flex: 1, minWidth: 0 }}>
+                            <span style={{ fontSize: '0.72rem', fontWeight: '700', color: '#d97706', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+                              AWAITING POST PUBLICATION
+                            </span>
+                            <p style={{ margin: '4px 0 2px 0', fontSize: '0.85rem', color: 'white' }}>
+                              {flow.future_post_caption
+                                ? <>Expected Caption Hint: <em>"{flow.future_post_caption}"</em></>
+                                : 'No caption hint provided. Scanning for newly published posts.'}
+                            </p>
+                            {flow.future_post_scheduled_at && (
+                              <p style={{ margin: '0 0 2px 0', fontSize: '0.75rem', color: 'var(--text-muted)' }}>
+                                📅 Scheduled Time: {new Date(flow.future_post_scheduled_at).toLocaleString()}
+                              </p>
+                            )}
+                            {flow.future_flow_last_scanned_at ? (
+                              <p style={{ margin: 0, fontSize: '0.72rem', color: 'var(--text-muted)' }}>
+                                🔍 Last Scanned: {new Date(flow.future_flow_last_scanned_at).toLocaleString()}
+                              </p>
+                            ) : (
+                              <p style={{ margin: 0, fontSize: '0.72rem', color: 'var(--text-muted)' }}>
+                                Automatic background scanning is active (every 5 minutes).
+                              </p>
+                            )}
+                          </div>
+                        </div>
+                      ) : (
+                        linkedPostInfo && (
+                          <div
+                            onClick={() => handleOpenPostOnPlatform(linkedPostInfo)}
+                            style={{
+                              display: 'flex',
+                              gap: '16px',
+                              alignItems: 'center',
+                              backgroundColor: 'rgba(5, 150, 105, 0.08)',
+                              border: '1px solid rgba(5, 150, 105, 0.3)',
+                              borderRadius: '12px',
+                              padding: '14px 18px',
+                              width: '100%',
+                              boxSizing: 'border-box',
+                              cursor: 'pointer',
+                            }}
+                          >
+                            <div style={{ fontSize: '1.8rem', flexShrink: 0 }}>✅</div>
+                            <div style={{ flex: 1, minWidth: 0 }}>
+                              <span style={{ fontSize: '0.72rem', fontWeight: '700', color: '#10b981', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+                                AUTOMATICALLY MATCHED & LINKED TO POST
+                              </span>
+                              <p style={{ margin: '4px 0 0 0', fontSize: '0.85rem', color: 'white', fontWeight: '600' }}>
+                                Post ID: {linkedPostInfo.postId}
+                              </p>
+                            </div>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '6px', color: '#10b981', fontSize: '0.82rem', fontWeight: '600' }}>
+                              <span>View Post</span> ↗
+                            </div>
+                          </div>
+                        )
+                      )}
+                    </div>
+                  );
+                });
+              })()}
+            </div>
+          </div>
+        )}
+
         {/* Tab 5: Comment Ingestion */}
+
         {activeTab === 'comments' && (
           <div>
             <div className="page-header">
@@ -5611,6 +6057,45 @@ export default function App() {
                 </div>
               </div>
 
+              {/* Future Flow Pending Banner in Flow Editor */}
+              {selectedFlow.is_future_flow && selectedFlow.future_flow_status === 'pending' && (
+                <div className="card" style={{
+                  marginBottom: '20px',
+                  padding: '14px 20px',
+                  background: 'linear-gradient(135deg, rgba(217,119,6,0.12), rgba(180,83,9,0.06))',
+                  border: '1px solid rgba(217,119,6,0.4)',
+                  borderRadius: '14px',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '16px',
+                }}>
+                  <div style={{ fontSize: '2rem', flexShrink: 0 }}>⏳</div>
+                  <div style={{ flex: 1 }}>
+                    <span style={{ fontSize: '0.72rem', fontWeight: '700', letterSpacing: '0.5px', color: '#d97706', textTransform: 'uppercase' }}>
+                      FUTURE FLOW — AWAITING PUBLICATION
+                    </span>
+                    <p style={{ margin: '4px 0 0 0', fontSize: '0.82rem', color: 'var(--text-secondary)' }}>
+                      Compose your DM and it will be automatically attached to your next post or reel.
+                    </p>
+                    {selectedFlow.future_flow_last_scanned_at && (
+                      <p style={{ margin: '2px 0 0 0', fontSize: '0.72rem', color: 'var(--text-muted)' }}>
+                        🔍 Last scanned: {new Date(selectedFlow.future_flow_last_scanned_at).toLocaleString()}
+                      </p>
+                    )}
+                  </div>
+                  {!selectedFlow.id.startsWith('flow_') && (
+                    <button
+                      className={`btn ${scanningFlowId === selectedFlow.id ? 'btn-disabled' : 'btn-secondary'}`}
+                      onClick={() => handleScanFutureFlow(selectedFlow.id)}
+                      disabled={scanningFlowId !== null}
+                      style={{ fontSize: '0.8rem', border: '1px solid #d97706', color: '#d97706', flexShrink: 0, whiteSpace: 'nowrap' }}
+                    >
+                      {scanningFlowId === selectedFlow.id ? '🔄 Scanning...' : '🔍 Scan Now'}
+                    </button>
+                  )}
+                </div>
+              )}
+
               {/* Prominent Linked Post Banner inside Flow Editor */}
               {linkedPostInBuilder && (
                 <div 
@@ -5887,6 +6372,122 @@ export default function App() {
                       );
                     })()}
                   </div>
+                </div>
+
+                {/* ─────────────────────────────────────────────── */}
+                {/* FUTURE FLOW SECTION                            */}
+                {/* ─────────────────────────────────────────────── */}
+                <div style={{ marginBottom: '24px', paddingBottom: '20px', borderBottom: '1px solid var(--border-color)' }}>
+                  <h3 style={{ marginBottom: '14px', fontSize: '1.05rem', borderBottom: '1px solid var(--border-color)', paddingBottom: '12px' }}>
+                    ⏳ Future Flow
+                  </h3>
+
+                  {/* Toggle */}
+                  <div style={{
+                    display: 'flex',
+                    alignItems: 'flex-start',
+                    gap: '12px',
+                    padding: '14px',
+                    borderRadius: '10px',
+                    border: selectedFlow.is_future_flow
+                      ? '1px solid rgba(217, 119, 6, 0.5)'
+                      : '1px solid var(--border-color)',
+                    background: selectedFlow.is_future_flow
+                      ? 'linear-gradient(135deg, rgba(217,119,6,0.08), rgba(180,83,9,0.04))'
+                      : 'rgba(255,255,255,0.02)',
+                    marginBottom: '12px',
+                    transition: 'all 0.2s ease'
+                  }}>
+                    <input
+                      type="checkbox"
+                      id="future-flow-toggle"
+                      checked={!!selectedFlow.is_future_flow}
+                      onChange={(e) => setSelectedFlow(prev => ({
+                        ...prev,
+                        is_future_flow: e.target.checked,
+                        // Clear post link when enabling future flow mode
+                        instagram_post_id: e.target.checked ? null : prev.instagram_post_id,
+                        facebook_post_id: e.target.checked ? null : prev.facebook_post_id,
+                      }))}
+                      style={{ width: '17px', height: '17px', cursor: 'pointer', marginTop: '2px', flexShrink: 0 }}
+                    />
+                    <div>
+                      <label htmlFor="future-flow-toggle" style={{ margin: 0, cursor: 'pointer', fontSize: '0.9rem', fontWeight: '600', color: selectedFlow.is_future_flow ? '#d97706' : 'white', display: 'block', marginBottom: '4px' }}>
+                        Enable Future Flow Mode
+                      </label>
+                      <p style={{ margin: 0, fontSize: '0.75rem', color: 'var(--text-secondary)', lineHeight: '1.4' }}>
+                        Set up automation for a post that hasn't been published yet. The system will scan for the post every 5 minutes and automatically activate when it goes live.
+                      </p>
+                    </div>
+                  </div>
+
+                  {/* Future Flow inputs (only shown when enabled) */}
+                  {selectedFlow.is_future_flow && (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+                      {/* Status badge */}
+                      {selectedFlow.future_flow_status && (
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                          <span style={{
+                            fontSize: '0.75rem',
+                            fontWeight: '700',
+                            padding: '3px 10px',
+                            borderRadius: '4px',
+                            background: selectedFlow.future_flow_status === 'resolved'
+                              ? 'linear-gradient(135deg, #059669, #047857)'
+                              : 'linear-gradient(135deg, #d97706, #b45309)',
+                            color: 'white'
+                          }}>
+                            {selectedFlow.future_flow_status === 'resolved' ? '✅ Resolved' : '⏳ Awaiting Post'}
+                          </span>
+                          {selectedFlow.future_flow_last_scanned_at && (
+                            <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>
+                              Last scan: {new Date(selectedFlow.future_flow_last_scanned_at).toLocaleTimeString()}
+                            </span>
+                          )}
+                        </div>
+                      )}
+
+                      {/* DM Attachment Notice & Apply to all future posts option */}
+                      <div style={{ margin: '4px 0 8px 0' }}>
+                        <p style={{ margin: '0 0 12px 0', fontSize: '0.85rem', color: 'var(--text-secondary)', lineHeight: '1.5' }}>
+                          Compose your DM below and it will be automatically attached to your next post or reel.{' '}
+                          <a 
+                            href="#" 
+                            onClick={(e) => { e.preventDefault(); addToast("When enabled, this automation attaches to the next published post on your connected channel.", "info"); }}
+                            style={{ color: '#3b82f6', textDecoration: 'underline', cursor: 'pointer' }}
+                          >
+                            Learn more
+                          </a>
+                        </p>
+
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                          <input
+                            type="checkbox"
+                            id="apply-all-future-posts"
+                            checked={!!selectedFlow.apply_to_all_future_posts}
+                            onChange={(e) => setSelectedFlow(prev => ({ ...prev, apply_to_all_future_posts: e.target.checked }))}
+                            style={{ width: '17px', height: '17px', cursor: 'pointer', accentColor: '#007bff' }}
+                          />
+                          <label htmlFor="apply-all-future-posts" style={{ fontSize: '0.88rem', color: 'white', cursor: 'pointer', margin: 0, fontWeight: '500' }}>
+                            Apply Next Post to all future posts
+                          </label>
+                        </div>
+                      </div>
+
+                      {/* Manual scan button */}
+                      {selectedFlow.future_flow_status !== 'resolved' && !selectedFlow.id.startsWith('flow_') && (
+                        <button
+                          type="button"
+                          className={`btn ${scanningFlowId === selectedFlow.id ? 'btn-disabled' : 'btn-secondary'}`}
+                          onClick={() => handleScanFutureFlow(selectedFlow.id)}
+                          disabled={scanningFlowId !== null}
+                          style={{ width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px', fontSize: '0.85rem', border: '1px solid #d97706', color: '#d97706' }}
+                        >
+                          {scanningFlowId === selectedFlow.id ? '🔄 Scanning for post...' : '🔍 Scan for Post Now'}
+                        </button>
+                      )}
+                    </div>
+                  )}
                 </div>
 
                 <h3 style={{ marginBottom: '16px', fontSize: '1.05rem', borderBottom: '1px solid var(--border-color)', paddingBottom: '12px' }}>

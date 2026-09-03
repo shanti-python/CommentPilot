@@ -17,7 +17,15 @@ celery_app.conf.update(
     enable_utc=True,
     task_track_started=True,
     task_time_limit=300,  # 5 minutes max
+    # Periodic task schedule (Celery Beat)
+    beat_schedule={
+        "scan-future-flows-every-5-minutes": {
+            "task": "app.workers.tasks.scan_future_flows_task",
+            "schedule": 300.0,  # Every 5 minutes
+        },
+    },
 )
 
 # Autodiscover tasks
 celery_app.autodiscover_tasks(["app.workers"])
+

@@ -51,6 +51,11 @@ class AutomationFlowCreate(AutomationFlowBase):
     facebook_post_id: Optional[str] = None
     nodes: List[FlowNodeCreate] = []
     edges: List[FlowEdgeCreate] = []
+    # Future flow fields
+    is_future_flow: bool = False
+    future_post_caption: Optional[str] = None
+    future_post_scheduled_at: Optional[datetime.datetime] = None
+    apply_to_all_future_posts: bool = False
 
 
 class AutomationFlowUpdate(BaseModel):
@@ -62,6 +67,12 @@ class AutomationFlowUpdate(BaseModel):
     facebook_post_id: Optional[str] = None
     nodes: Optional[List[FlowNodeCreate]] = None
     edges: Optional[List[FlowEdgeCreate]] = None
+    # Future flow fields
+    is_future_flow: Optional[bool] = None
+    future_post_caption: Optional[str] = None
+    future_post_scheduled_at: Optional[datetime.datetime] = None
+    future_flow_status: Optional[str] = None
+    apply_to_all_future_posts: Optional[bool] = None
 
 
 class AutomationFlow(AutomationFlowBase):
@@ -74,5 +85,12 @@ class AutomationFlow(AutomationFlowBase):
     updated_at: datetime.datetime
     nodes: List[FlowNode] = []
     edges: List[FlowEdge] = []
+    # Future flow fields
+    is_future_flow: bool = False
+    future_post_caption: Optional[str] = None
+    future_post_scheduled_at: Optional[datetime.datetime] = None
+    future_flow_status: Optional[str] = None
+    future_flow_last_scanned_at: Optional[datetime.datetime] = None
+    apply_to_all_future_posts: bool = False
 
     model_config = ConfigDict(from_attributes=True)
