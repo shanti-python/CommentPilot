@@ -125,6 +125,22 @@ async def facebook_connect(
             }
             
             if existing:
+                # If connected Instagram account changed for this Page, purge stale posts from old account
+                if existing.instagram_business_account_id != disc["instagram_business_account_id"]:
+                    logger.info(
+                        f"Instagram account changed on page {disc['page_id']}: "
+                        f"{existing.instagram_business_account_id} -> {disc['instagram_business_account_id']}. Purging old posts."
+                    )
+                    from sqlalchemy import delete, or_
+                    from app.models.instagram import Post
+                    await db.execute(
+                        delete(Post).where(
+                            Post.instagram_account_id == existing.id,
+                            or_(Post.is_future_post.is_(False), Post.is_future_post.is_(None))
+                        )
+                    )
+                    await db.commit()
+
                 # Update existing account credentials & info
                 account = await instagram_account_repo.update(db, db_obj=existing, obj_in=account_data)
             else:
@@ -158,7 +174,9 @@ async def facebook_connect(
                     instagram_business_account_id=account.instagram_business_account_id,
                     page_access_token=account.page_access_token
                 )
+                synced_ids = set()
                 for post in posts_data:
+                    synced_ids.add(post["id"])
                     existing_post = await post_repo.get(db, post["id"])
                     
                     raw_ts = post.get("timestamp") or post.get("created_time") or post.get("created_at")
@@ -181,6 +199,16 @@ async def facebook_connect(
                         await post_repo.update(db, db_obj=existing_post, obj_in=post_in)
                     else:
                         await post_repo.create(db, obj_in=post_in)
+
+                # Prune any stale posts that no longer belong to this account
+                from sqlalchemy import delete, or_
+                from app.models.instagram import Post
+                delete_stmt = delete(Post).where(
+                    Post.instagram_account_id == account.id,
+                    Post.id.not_in(synced_ids),
+                    or_(Post.is_future_post.is_(False), Post.is_future_post.is_(None))
+                )
+                await db.execute(delete_stmt)
                 await db.commit()
             except Exception as e:
                 logger.warning(f"Failed to sync initial posts for account {account.username}: {str(e)}")
@@ -275,7 +303,9 @@ async def facebook_connect_page(
                     page_id=account.facebook_page_id,
                     page_access_token=account.page_access_token
                 )
+                synced_ids = set()
                 for post in posts_data:
+                    synced_ids.add(post["id"])
                     existing_post = await facebook_post_repo.get(db, post["id"])
                     
                     raw_ts = post.get("timestamp") or post.get("created_time") or post.get("created_at")
@@ -299,6 +329,16 @@ async def facebook_connect_page(
                         await facebook_post_repo.update(db, db_obj=existing_post, obj_in=post_in)
                     else:
                         await facebook_post_repo.create(db, obj_in=post_in)
+
+                # Prune any stale posts that no longer belong to this Facebook page
+                from sqlalchemy import delete, or_
+                from app.models.facebook import FacebookPost
+                delete_stmt = delete(FacebookPost).where(
+                    FacebookPost.facebook_account_id == account.id,
+                    FacebookPost.id.not_in(synced_ids),
+                    or_(FacebookPost.is_future_post.is_(False), FacebookPost.is_future_post.is_(None))
+                )
+                await db.execute(delete_stmt)
                 await db.commit()
             except Exception as e:
                 logger.warning(f"Failed to sync initial Facebook posts for page {account.name}: {str(e)}")

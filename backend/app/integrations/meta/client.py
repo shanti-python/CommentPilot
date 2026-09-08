@@ -324,19 +324,37 @@ class MetaClient:
 
 
         
-    async def get_instagram_posts(self, instagram_business_account_id: str, page_access_token: str) -> List[Dict[str, Any]]:
-        """Fetch list of media/posts on the Instagram business account."""
+    async def get_instagram_posts(self, instagram_business_account_id: str, page_access_token: str, max_items: int = 250) -> List[Dict[str, Any]]:
+        """Fetch list of media/posts on the Instagram business account with cursor pagination."""
         logger.info(f"Fetching posts for Instagram Account {instagram_business_account_id}")
         params = {
             "fields": "id,caption,media_type,media_url,thumbnail_url,permalink,timestamp,created_time",
             "access_token": page_access_token,
-            "limit": 100
+            "limit": min(100, max_items)
         }
-        res = await self._request("GET", f"/{instagram_business_account_id}/media", params=params)
+        endpoint = f"/{instagram_business_account_id}/media"
         posts_data = []
-        for item in res.get("data", []):
-            item["timestamp"] = item.get("timestamp") or item.get("created_time")
-            posts_data.append(item)
+
+        while endpoint and len(posts_data) < max_items:
+            res = await self._request("GET", endpoint, params=params)
+            items = res.get("data", [])
+            if not items:
+                break
+            for item in items:
+                item["timestamp"] = item.get("timestamp") or item.get("created_time")
+                posts_data.append(item)
+                if len(posts_data) >= max_items:
+                    break
+
+            paging = res.get("paging", {})
+            cursors = paging.get("cursors", {})
+            after_cursor = cursors.get("after")
+            if after_cursor and paging.get("next"):
+                params["after"] = after_cursor
+                endpoint = f"/{instagram_business_account_id}/media"
+            else:
+                break
+
         return posts_data
 
     async def get_instagram_comments(self, media_id: str, page_access_token: str) -> List[Dict[str, Any]]:

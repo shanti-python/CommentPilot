@@ -59,6 +59,12 @@ async def sync_posts(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="No connected Instagram accounts found to sync."
         )
+
+    if instagram_account_id is not None and instagram_account_id not in [acc.id for acc in accounts]:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Instagram account not found or not owned by user."
+        )
         
     synced_posts = []
     
@@ -71,7 +77,9 @@ async def sync_posts(
                 instagram_business_account_id=account.instagram_business_account_id,
                 page_access_token=account.page_access_token
             )
+            synced_ids = set()
             for post in posts_data:
+                synced_ids.add(post["id"])
                 existing_post = await post_repo.get(db, post["id"])
                 
                 raw_ts = post.get("timestamp") or post.get("created_time") or post.get("created_at")
@@ -96,12 +104,21 @@ async def sync_posts(
                 else:
                     await post_repo.create(db, obj_in=post_in)
                     
+            # Prune stale / previously connected posts that no longer exist on this Instagram account
+            from sqlalchemy import delete, or_
+            delete_stmt = delete(Post).where(
+                Post.instagram_account_id == account.id,
+                Post.id.not_in(synced_ids),
+                or_(Post.is_future_post.is_(False), Post.is_future_post.is_(None))
+            )
+            await db.execute(delete_stmt)
             await db.commit()
         except MetaAPIError as e:
             logger.warning(f"Meta sync failed for Instagram @{account.username}: {e.message}")
                 
-    # Return all posts for the user ordered by published date
-    query = select(Post).where(Post.instagram_account_id.in_([acc.id for acc in accounts])).order_by(Post.timestamp.desc())
+    # Return posts for the synced accounts ordered by published date
+    target_account_ids = [acc.id for acc in accounts if (instagram_account_id is None or acc.id == instagram_account_id)]
+    query = select(Post).where(Post.instagram_account_id.in_(target_account_ids)).order_by(Post.timestamp.desc())
     res = await db.execute(query)
     return res.scalars().all()
 
@@ -343,6 +360,12 @@ async def sync_facebook_posts(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="No connected Facebook Pages found to sync."
         )
+
+    if facebook_account_id is not None and facebook_account_id not in [acc.id for acc in accounts]:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Facebook Page not found or not owned by user."
+        )
         
     for account in accounts:
         if facebook_account_id is not None and account.id != facebook_account_id:
@@ -353,7 +376,9 @@ async def sync_facebook_posts(
                 page_id=account.facebook_page_id,
                 page_access_token=account.page_access_token
             )
+            synced_ids = set()
             for post in posts_data:
+                synced_ids.add(post["id"])
                 existing_post = await facebook_post_repo.get(db, post["id"])
                 
                 raw_ts = post.get("timestamp") or post.get("created_time") or post.get("created_at")
@@ -378,12 +403,21 @@ async def sync_facebook_posts(
                 else:
                     await facebook_post_repo.create(db, obj_in=post_in)
                     
+            # Prune stale / deleted posts that no longer exist on this Facebook page
+            from sqlalchemy import delete, or_
+            delete_stmt = delete(FacebookPost).where(
+                FacebookPost.facebook_account_id == account.id,
+                FacebookPost.id.not_in(synced_ids),
+                or_(FacebookPost.is_future_post.is_(False), FacebookPost.is_future_post.is_(None))
+            )
+            await db.execute(delete_stmt)
             await db.commit()
         except MetaAPIError as e:
             logger.warning(f"Meta sync failed for Facebook Page @{account.name}: {e.message}")
                 
-    # Return all posts for the user ordered by published date
-    query = select(FacebookPost).where(FacebookPost.facebook_account_id.in_([acc.id for acc in accounts])).order_by(FacebookPost.timestamp.desc())
+    # Return posts for the synced accounts ordered by published date
+    target_account_ids = [acc.id for acc in accounts if (facebook_account_id is None or acc.id == facebook_account_id)]
+    query = select(FacebookPost).where(FacebookPost.facebook_account_id.in_(target_account_ids)).order_by(FacebookPost.timestamp.desc())
     res = await db.execute(query)
     return res.scalars().all()
 

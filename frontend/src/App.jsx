@@ -25,6 +25,20 @@ import {
   LogOut
 } from 'lucide-react';
 
+const InstagramIcon = ({ size = 16, style = {} }) => (
+  <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={style}>
+    <rect x="2" y="2" width="20" height="20" rx="5" ry="5"></rect>
+    <path d="M16 11.37A4 4 0 1 1 12.63 8 4 4 0 0 1 16 11.37z"></path>
+    <line x1="17.5" y1="6.5" x2="17.51" y2="6.5"></line>
+  </svg>
+);
+
+const FacebookIcon = ({ size = 16, style = {} }) => (
+  <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={style}>
+    <path d="M18 2h-3a5 5 0 0 0-5 5v3H7v4h3v8h4v-8h3l1-4h-4V7a1 1 0 0 1 1-1h3z"></path>
+  </svg>
+);
+
 const API_BASE = import.meta.env.VITE_API_BASE || '/api/v1';
 
 
@@ -464,6 +478,8 @@ export default function App() {
   const [comments, setComments] = useState([]);
   const [logs, setLogs] = useState([]);
   const [postsFilterPlatform, setPostsFilterPlatform] = useState("instagram");
+  const [selectedInstagramAccount, setSelectedInstagramAccount] = useState("all");
+  const [selectedFacebookAccount, setSelectedFacebookAccount] = useState("all");
   const [analytics, setAnalytics] = useState({
     total_comments: 0,
     replies_sent: 0,
@@ -828,6 +844,8 @@ export default function App() {
           });
           if (res.ok) {
             addToast("Instagram account disconnected successfully", "success");
+            setPosts(prev => prev.filter(p => p.instagram_account_id !== accId));
+            setSelectedInstagramAccount(prev => (String(prev) === String(accId) ? 'all' : prev));
             fetchBackendData();
           } else {
             addToast("Failed to disconnect Instagram account", "error");
@@ -853,6 +871,8 @@ export default function App() {
           });
           if (res.ok) {
             addToast("Facebook Page disconnected successfully", "success");
+            setFacebookPosts(prev => prev.filter(p => p.facebook_account_id !== accId));
+            setSelectedFacebookAccount(prev => (String(prev) === String(accId) ? 'all' : prev));
             fetchBackendData();
           } else {
             addToast("Failed to disconnect Facebook Page", "error");
@@ -951,23 +971,53 @@ export default function App() {
     setIsSyncingPosts(true);
     try {
       const promises = [];
-      if (accounts.length > 0) {
+      const syncIg = postsFilterPlatform === 'instagram';
+      const syncFb = postsFilterPlatform === 'facebook';
+
+      if (syncIg && accounts.length > 0) {
+        const igUrl = selectedInstagramAccount && selectedInstagramAccount !== 'all'
+          ? `${API_BASE}/posts/sync?instagram_account_id=${selectedInstagramAccount}`
+          : `${API_BASE}/posts/sync`;
         promises.push(
-          fetch(`${API_BASE}/posts/sync`, {
+          fetch(igUrl, {
             method: 'POST',
             headers: { 'Authorization': `Bearer ${token}` }
           }).then(async res => {
-            if (res.ok) setPosts(await res.json());
+            if (res.ok) {
+              const synced = await res.json();
+              if (selectedInstagramAccount && selectedInstagramAccount !== 'all') {
+                setPosts(prev => {
+                  const others = prev.filter(p => String(p.instagram_account_id) !== String(selectedInstagramAccount));
+                  return [...synced, ...others];
+                });
+              } else {
+                setPosts(synced);
+              }
+            }
           })
         );
       }
-      if (facebookAccounts.length > 0) {
+
+      if (syncFb && facebookAccounts.length > 0) {
+        const fbUrl = selectedFacebookAccount && selectedFacebookAccount !== 'all'
+          ? `${API_BASE}/posts/facebook/sync?facebook_account_id=${selectedFacebookAccount}`
+          : `${API_BASE}/posts/facebook/sync`;
         promises.push(
-          fetch(`${API_BASE}/posts/facebook/sync`, {
+          fetch(fbUrl, {
             method: 'POST',
             headers: { 'Authorization': `Bearer ${token}` }
           }).then(async res => {
-            if (res.ok) setFacebookPosts(await res.json());
+            if (res.ok) {
+              const synced = await res.json();
+              if (selectedFacebookAccount && selectedFacebookAccount !== 'all') {
+                setFacebookPosts(prev => {
+                  const others = prev.filter(p => String(p.facebook_account_id) !== String(selectedFacebookAccount));
+                  return [...synced, ...others];
+                });
+              } else {
+                setFacebookPosts(synced);
+              }
+            }
           })
         );
       }
@@ -3528,65 +3578,133 @@ export default function App() {
             </div>
 
             {/* Platform Selector */}
-            <div style={{ display: 'flex', gap: '12px', marginBottom: '20px' }}>
+            <div style={{ display: 'flex', gap: '12px', marginBottom: '16px' }}>
               <button 
                 onClick={() => { setPostsFilterPlatform('instagram'); setPostsFilter('all'); }}
                 className={`btn ${postsFilterPlatform === 'instagram' ? 'btn-primary' : 'btn-secondary'}`}
                 style={{ padding: '8px 16px', fontSize: '0.85rem' }}
               >
-                Instagram Accounts
+                Instagram Accounts ({accounts.length})
               </button>
               <button 
                 onClick={() => { setPostsFilterPlatform('facebook'); setPostsFilter('all'); }}
                 className={`btn ${postsFilterPlatform === 'facebook' ? 'btn-primary' : 'btn-secondary'}`}
                 style={{ padding: '8px 16px', fontSize: '0.85rem' }}
               >
-                Facebook Pages
+                Facebook Pages ({facebookAccounts.length})
               </button>
             </div>
 
-            {/* Media Type & Automation Status Tabs */}
-            <div style={{ display: 'flex', flexWrap: 'wrap', justifyContent: 'space-between', gap: '15px', marginBottom: '20px', borderBottom: '1px solid var(--border-color)', paddingBottom: '12px' }}>
-              {/* Media Type Filter */}
-              <div style={{ display: 'flex', gap: '8px' }}>
-                <button 
-                  onClick={() => setPostsFilter('all')}
-                  className={`btn ${postsFilter === 'all' ? 'btn-primary' : 'btn-secondary'}`}
-                  style={{ padding: '6px 12px', fontSize: '0.8rem' }}
+            {/* Specific Connected Account / Page Selector */}
+            {postsFilterPlatform === 'instagram' && accounts.length > 0 && (
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '20px', flexWrap: 'wrap', padding: '8px 12px', background: 'rgba(255,255,255,0.02)', borderRadius: '8px', border: '1px solid var(--border-color)' }}>
+                <span style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', fontWeight: 600 }}>Connected Account:</span>
+                <button
+                  onClick={() => setSelectedInstagramAccount('all')}
+                  className={`btn ${selectedInstagramAccount === 'all' ? 'btn-primary' : 'btn-secondary'}`}
+                  style={{ padding: '4px 12px', fontSize: '0.75rem', borderRadius: '14px' }}
                 >
-                  All Media ({postsFilterPlatform === 'instagram' ? posts.length : facebookPosts.length})
+                  All Instagram Accounts ({accounts.length})
                 </button>
-                <button 
-                  onClick={() => setPostsFilter('reels')}
-                  className={`btn ${postsFilter === 'reels' ? 'btn-primary' : 'btn-secondary'}`}
-                  style={{ padding: '6px 12px', fontSize: '0.8rem' }}
-                >
-                  Reels / Videos ({postsFilterPlatform === 'instagram' ? posts.filter(p => p.media_type === 'VIDEO').length : facebookPosts.filter(p => p.media_type === 'VIDEO' || p.media_type === 'video').length})
-                </button>
+                {accounts.map(acc => (
+                  <button
+                    key={acc.id}
+                    onClick={() => setSelectedInstagramAccount(acc.id)}
+                    className={`btn ${String(selectedInstagramAccount) === String(acc.id) ? 'btn-primary' : 'btn-secondary'}`}
+                    style={{ padding: '4px 12px', fontSize: '0.75rem', borderRadius: '14px', display: 'flex', alignItems: 'center', gap: '6px' }}
+                  >
+                    <InstagramIcon size={13} />
+                    @{acc.username}
+                  </button>
+                ))}
               </div>
+            )}
 
-              {/* Automation Status Tabs */}
-              <div style={{ display: 'flex', gap: '8px' }}>
-                <button 
-                  onClick={() => setPostsAutomationFilter('all')}
-                  className={`btn ${postsAutomationFilter === 'all' ? 'btn-primary' : 'btn-secondary'}`}
-                  style={{ padding: '6px 12px', fontSize: '0.8rem' }}
+            {postsFilterPlatform === 'facebook' && facebookAccounts.length > 0 && (
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '20px', flexWrap: 'wrap', padding: '8px 12px', background: 'rgba(255,255,255,0.02)', borderRadius: '8px', border: '1px solid var(--border-color)' }}>
+                <span style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', fontWeight: 600 }}>Connected Page:</span>
+                <button
+                  onClick={() => setSelectedFacebookAccount('all')}
+                  className={`btn ${selectedFacebookAccount === 'all' ? 'btn-primary' : 'btn-secondary'}`}
+                  style={{ padding: '4px 12px', fontSize: '0.75rem', borderRadius: '14px' }}
                 >
-                  All Posts
+                  All Facebook Pages ({facebookAccounts.length})
                 </button>
-                <button 
-                  onClick={() => setPostsAutomationFilter('active')}
-                  className={`btn ${postsAutomationFilter === 'active' ? 'btn-primary' : 'btn-secondary'}`}
-                  style={{ padding: '6px 12px', fontSize: '0.8rem' }}
-                >
-                  Active
-                </button>
+                {facebookAccounts.map(acc => (
+                  <button
+                    key={acc.id}
+                    onClick={() => setSelectedFacebookAccount(acc.id)}
+                    className={`btn ${String(selectedFacebookAccount) === String(acc.id) ? 'btn-primary' : 'btn-secondary'}`}
+                    style={{ padding: '4px 12px', fontSize: '0.75rem', borderRadius: '14px', display: 'flex', alignItems: 'center', gap: '6px' }}
+                  >
+                    <FacebookIcon size={13} />
+                    {acc.name}
+                  </button>
+                ))}
               </div>
-            </div>
+            )}
+
+            {/* Media Type & Automation Status Tabs */}
+            {(() => {
+              // Calculate scoped items for count tabs
+              let scopedItems = postsFilterPlatform === 'instagram' ? posts : facebookPosts;
+              if (postsFilterPlatform === 'instagram' && selectedInstagramAccount !== 'all') {
+                scopedItems = scopedItems.filter(p => String(p.instagram_account_id) === String(selectedInstagramAccount));
+              } else if (postsFilterPlatform === 'facebook' && selectedFacebookAccount !== 'all') {
+                scopedItems = scopedItems.filter(p => String(p.facebook_account_id) === String(selectedFacebookAccount));
+              }
+
+              return (
+                <div style={{ display: 'flex', flexWrap: 'wrap', justifyContent: 'space-between', gap: '15px', marginBottom: '20px', borderBottom: '1px solid var(--border-color)', paddingBottom: '12px' }}>
+                  {/* Media Type Filter */}
+                  <div style={{ display: 'flex', gap: '8px' }}>
+                    <button 
+                      onClick={() => setPostsFilter('all')}
+                      className={`btn ${postsFilter === 'all' ? 'btn-primary' : 'btn-secondary'}`}
+                      style={{ padding: '6px 12px', fontSize: '0.8rem' }}
+                    >
+                      All Media ({scopedItems.length})
+                    </button>
+                    <button 
+                      onClick={() => setPostsFilter('reels')}
+                      className={`btn ${postsFilter === 'reels' ? 'btn-primary' : 'btn-secondary'}`}
+                      style={{ padding: '6px 12px', fontSize: '0.8rem' }}
+                    >
+                      Reels / Videos ({scopedItems.filter(p => p.media_type === 'VIDEO' || p.media_type === 'video').length})
+                    </button>
+                  </div>
+
+                  {/* Automation Status Tabs */}
+                  <div style={{ display: 'flex', gap: '8px' }}>
+                    <button 
+                      onClick={() => setPostsAutomationFilter('all')}
+                      className={`btn ${postsAutomationFilter === 'all' ? 'btn-primary' : 'btn-secondary'}`}
+                      style={{ padding: '6px 12px', fontSize: '0.8rem' }}
+                    >
+                      All Posts
+                    </button>
+                    <button 
+                      onClick={() => setPostsAutomationFilter('active')}
+                      className={`btn ${postsAutomationFilter === 'active' ? 'btn-primary' : 'btn-secondary'}`}
+                      style={{ padding: '6px 12px', fontSize: '0.8rem' }}
+                    >
+                      Active
+                    </button>
+                  </div>
+                </div>
+              );
+            })()}
 
             {/* Posts Grid */}
             {(() => {
-              const allItems = postsFilterPlatform === 'instagram' ? posts : facebookPosts;
+              let allItems = postsFilterPlatform === 'instagram' ? posts : facebookPosts;
+              
+              // Filter by Selected Connected Account
+              if (postsFilterPlatform === 'instagram' && selectedInstagramAccount !== 'all') {
+                allItems = allItems.filter(p => String(p.instagram_account_id) === String(selectedInstagramAccount));
+              } else if (postsFilterPlatform === 'facebook' && selectedFacebookAccount !== 'all') {
+                allItems = allItems.filter(p => String(p.facebook_account_id) === String(selectedFacebookAccount));
+              }
               
               // 1. Filter by Media type
               let filtered = allItems.filter(post => {
@@ -3690,6 +3808,19 @@ export default function App() {
                         </div>
                         <div className="post-info" style={{ flexGrow: 1, display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}>
                           <div>
+                            {(() => {
+                              const isIg = postsFilterPlatform === 'instagram';
+                              const accObj = isIg 
+                                ? accounts.find(a => a.id === post.instagram_account_id)
+                                : facebookAccounts.find(a => a.id === post.facebook_account_id);
+                              if (!accObj) return null;
+                              return (
+                                <div style={{ display: 'inline-flex', alignItems: 'center', gap: '5px', fontSize: '0.75rem', color: 'var(--text-secondary)', background: 'rgba(255,255,255,0.04)', padding: '2px 8px', borderRadius: '4px', marginBottom: '8px', border: '1px solid var(--border-color)' }}>
+                                  {isIg ? <InstagramIcon size={11} /> : <FacebookIcon size={11} />}
+                                  <span>{isIg ? `@${accObj.username}` : accObj.name}</span>
+                                </div>
+                              );
+                            })()}
                             <p className="post-caption" style={{ marginBottom: '12px' }}>{post.caption || "No caption"}</p>
                             
                             {/* Automation Config Summary */}
