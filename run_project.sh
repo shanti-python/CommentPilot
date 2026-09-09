@@ -29,9 +29,9 @@ source venv/bin/activate
 uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload &
 BACKEND_PID=$!
 
-# Start Celery Background Worker
-echo "⚙️ Starting Celery Background Worker..."
-celery -A app.core.cel_app:celery_app worker --loglevel=info &
+# Start Celery Background Worker with Beat for periodic schedules
+echo "⚙️ Starting Celery Background Worker & Beat Scheduler..."
+celery -A app.core.cel_app:celery_app worker --beat --loglevel=info &
 CELERY_PID=$!
 
 # Start Frontend

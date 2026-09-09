@@ -329,10 +329,19 @@ def scan_future_flows_task():
                         best_match = real_posts_sorted[0]
                         best_score = 1.0
 
+                    if flow.apply_to_all_future_posts:
+                        for p in real_posts:
+                            if p.automation_status != "active":
+                                p.automation_status = "active"
+                                db.add(p)
+                        await db.commit()
+
                     if best_match and best_score >= SIMILARITY_THRESHOLD:
                         celery_logger.info(
                             f"[FutureFlow] ✅ Flow {flow.id} matched post {best_match.id} (score={best_score:.2f})"
                         )
+                        best_match.automation_status = "active"
+                        db.add(best_match)
                         update_data = {
                             "future_flow_status": "resolved",
                             "future_flow_last_scanned_at": now,
@@ -344,6 +353,26 @@ def scan_future_flows_task():
 
                         await automation_flow_repo.update(db, db_obj=flow, obj_in=update_data)
                         await db.commit()
+
+                        # Immediately trigger comment scan for newly resolved posts
+                        try:
+                            from app.services.comment_processor import comment_processor
+                            target_posts = real_posts if flow.apply_to_all_future_posts else [best_match]
+                            total_processed = 0
+                            for p_target in target_posts:
+                                c_res = await comment_processor.scan_and_process_pending_comments(
+                                    db=db,
+                                    account_id=account.id,
+                                    target_post_id=p_target.id,
+                                    target_flow_id=flow.id
+                                )
+                                total_processed += c_res.get("processed_count", 0)
+                            if total_processed > 0:
+                                celery_logger.info(
+                                    f"[BackgroundScanner] Scan complete. Processed {total_processed} comment(s)."
+                                )
+                        except Exception as c_err:
+                            celery_logger.warning(f"[FutureFlow] Post-resolution comment scan warning: {c_err}")
                     else:
                         celery_logger.info(
                             f"[FutureFlow] ⏳ No match for flow {flow.id}. "
@@ -360,3 +389,34 @@ def scan_future_flows_task():
     except Exception as exc:
         celery_logger.error(f"[FutureFlow] Periodic scan task failed: {exc}")
         raise scan_future_flows_task.retry(exc=exc)
+
+
+# ---------------------------------------------------------------------------
+# Periodic Comment Scanning Task (runs every 5 minutes via Celery Beat)
+# ---------------------------------------------------------------------------
+
+@celery_app.task(
+    name="app.workers.tasks.scan_all_comments_task",
+    max_retries=1,
+    default_retry_delay=60,
+)
+def scan_all_comments_task():
+    """
+    Periodic task (every 5 minutes) that scans latest comments across all active accounts
+    and matches them against active automation flows.
+    """
+    celery_logger.info("[BackgroundScanner] Starting periodic scan for pending comments...")
+
+    async def _execute():
+        async with SessionLocal() as db:
+            result = await comment_processor.scan_and_process_pending_comments(db=db)
+            celery_logger.info(
+                f"[BackgroundScanner] Scan complete. Processed {result.get('processed_count', 0)} comment(s)."
+            )
+
+    try:
+        run_async(_execute())
+    except Exception as exc:
+        celery_logger.error(f"[CommentScanner] Periodic comment scan task failed: {exc}")
+        raise scan_all_comments_task.retry(exc=exc)
+

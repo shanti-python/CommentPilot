@@ -155,7 +155,8 @@ class AutomationEngine:
             success = True
             
             if node.type == "action_reply":
-                template = node.config.get("message") or "@{{username}} Link sent! Check your messages 📩"
+                raw_msg = (node.config.get("message") or "").strip()
+                template = raw_msg or "@{{username}} Thanks for your comment! Check your DMs 📩"
                 reply_text = await self._replace_placeholders(template)
                 try:
                     from sqlalchemy import select
@@ -259,10 +260,10 @@ class AutomationEngine:
                             logger.info(f"Successfully sent rich DM template via direct message to {commenter_id}: {direct_dm_id}")
                         except Exception as e_direct:
                             direct_dm_error = str(e_direct)
-                            logger.warning(f"Failed to send rich direct DM template to commenter {commenter_id}: {str(e_direct)}")
+                            logger.info(f"Direct DM note (private reply via comment was delivered): {str(e_direct)}")
                             
                     log_details = {"message_id": dm_id, "direct_message_id": direct_dm_id, "text": dm_text}
-                    if direct_dm_error:
+                    if direct_dm_error and not dm_id:
                         log_details["direct_dm_error"] = direct_dm_error
 
                     await self.log_step(

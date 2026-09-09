@@ -23,6 +23,10 @@ celery_app.conf.update(
             "task": "app.workers.tasks.scan_future_flows_task",
             "schedule": 300.0,  # Every 5 minutes
         },
+        "scan-comments-every-5-minutes": {
+            "task": "app.workers.tasks.scan_all_comments_task",
+            "schedule": float(getattr(settings, "COMMENT_SCAN_INTERVAL_SECONDS", 300)),
+        },
     },
 )
 

@@ -22,7 +22,9 @@ import {
   Info,
   MessageCircle,
   Edit,
-  LogOut
+  LogOut,
+  Film,
+  Image as ImageIcon
 } from 'lucide-react';
 
 const InstagramIcon = ({ size = 16, style = {} }) => (
@@ -38,6 +40,274 @@ const FacebookIcon = ({ size = 16, style = {} }) => (
     <path d="M18 2h-3a5 5 0 0 0-5 5v3H7v4h3v8h4v-8h3l1-4h-4V7a1 1 0 0 1 1-1h3z"></path>
   </svg>
 );
+
+const checkIsFbPost = (post) => {
+  if (!post) return false;
+  return Boolean(post.facebook_account_id || post.facebook_page_id || post.is_facebook || (post.id && String(post.id).startsWith('fb_')));
+};
+
+const PostPreviewMedia = ({ 
+  post, 
+  variant = 'card', // 'card', 'table', 'compact'
+  style = {},
+  showBadge = true
+}) => {
+  const [hasError, setHasError] = useState(false);
+  
+  const isFb = checkIsFbPost(post);
+  const mediaUrl = post?.thumbnail_url || post?.media_url || null;
+  const isVideo = Boolean(
+    post?.media_type === 'reel' || 
+    post?.media_type === 'video' || 
+    post?.media_type === 'VIDEO' || 
+    (post?.permalink && String(post.permalink).includes('/reel/'))
+  );
+
+  useEffect(() => {
+    setHasError(false);
+  }, [mediaUrl, post?.id]);
+
+  if (variant === 'table') {
+    return (
+      <div 
+        style={{ 
+          width: '40px', 
+          height: '40px', 
+          borderRadius: '6px', 
+          overflow: 'hidden', 
+          backgroundColor: '#151622',
+          flexShrink: 0,
+          position: 'relative',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          border: '1px solid rgba(255, 255, 255, 0.08)',
+          ...style 
+        }}
+      >
+        {mediaUrl && !hasError ? (
+          <img 
+            src={mediaUrl} 
+            alt={post?.caption || "Post Preview"} 
+            referrerPolicy="no-referrer"
+            onError={() => setHasError(true)}
+            style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} 
+          />
+        ) : (
+          <div style={{ 
+            width: '100%', 
+            height: '100%', 
+            display: 'flex', 
+            alignItems: 'center', 
+            justifyContent: 'center',
+            background: 'linear-gradient(135deg, #1e1f30 0%, #11121a 100%)',
+            color: isVideo ? '#a78bfa' : '#94a3b8'
+          }}>
+            {isVideo ? <Film size={18} /> : <ImageIcon size={18} />}
+          </div>
+        )}
+      </div>
+    );
+  }
+
+  if (variant === 'compact') {
+    return (
+      <div 
+        style={{ 
+          width: '60px', 
+          height: '60px', 
+          borderRadius: '6px', 
+          overflow: 'hidden', 
+          backgroundColor: '#151622',
+          flexShrink: 0,
+          position: 'relative',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          border: '1px solid rgba(255, 255, 255, 0.08)',
+          ...style 
+        }}
+      >
+        {mediaUrl && !hasError ? (
+          <img 
+            src={mediaUrl} 
+            alt={post?.caption || "Post preview"} 
+            referrerPolicy="no-referrer"
+            onError={() => setHasError(true)}
+            style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} 
+          />
+        ) : (
+          <div style={{ 
+            width: '100%', 
+            height: '100%', 
+            display: 'flex', 
+            alignItems: 'center', 
+            justifyContent: 'center',
+            background: 'linear-gradient(135deg, #1e1f30 0%, #11121a 100%)',
+            color: isVideo ? '#a78bfa' : '#94a3b8'
+          }}>
+            {isVideo ? <Film size={22} /> : <ImageIcon size={22} />}
+          </div>
+        )}
+      </div>
+    );
+  }
+
+  // Variant: 'card' (Ready to Setup dashboard cards)
+  return (
+    <div 
+      style={{ 
+        position: 'relative', 
+        width: '100%', 
+        aspectRatio: '1.2', 
+        borderRadius: '8px', 
+        overflow: 'hidden', 
+        backgroundColor: '#101017',
+        border: '1px solid rgba(255, 255, 255, 0.06)',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        ...style 
+      }}
+    >
+      {mediaUrl && !hasError ? (
+        <img 
+          src={mediaUrl} 
+          alt={post?.caption || "Post Preview"} 
+          referrerPolicy="no-referrer"
+          onError={() => setHasError(true)}
+          style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} 
+        />
+      ) : (
+        <div 
+          style={{ 
+            width: '100%', 
+            height: '100%', 
+            display: 'flex', 
+            flexDirection: 'column', 
+            alignItems: 'center', 
+            justifyContent: 'center',
+            background: 'radial-gradient(circle at 50% 40%, rgba(30, 32, 54, 0.95) 0%, rgba(13, 14, 22, 0.98) 100%)',
+            padding: '16px',
+            textAlign: 'center',
+            userSelect: 'none'
+          }}
+        >
+          <div style={{
+            width: '56px',
+            height: '56px',
+            borderRadius: '50%',
+            background: isVideo 
+              ? 'radial-gradient(circle, rgba(139, 92, 246, 0.25) 0%, rgba(139, 92, 246, 0) 70%)' 
+              : 'radial-gradient(circle, rgba(59, 130, 246, 0.25) 0%, rgba(59, 130, 246, 0) 70%)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            marginBottom: '8px'
+          }}>
+            {isVideo ? (
+              <Film size={28} color="#a78bfa" style={{ filter: 'drop-shadow(0 2px 8px rgba(167, 139, 250, 0.4))' }} />
+            ) : (
+              <ImageIcon size={28} color="#60a5fa" style={{ filter: 'drop-shadow(0 2px 8px rgba(96, 165, 250, 0.4))' }} />
+            )}
+          </div>
+
+          <span style={{ 
+            fontSize: '0.78rem', 
+            fontWeight: '600', 
+            letterSpacing: '0.04em',
+            textTransform: 'uppercase',
+            color: isVideo ? '#c4b5fd' : '#93c5fd',
+            marginBottom: '4px'
+          }}>
+            {isVideo ? 'Reel / Video' : 'Post Preview'}
+          </span>
+
+          <span style={{ 
+            fontSize: '0.72rem', 
+            color: 'var(--text-muted, #71717a)',
+            maxWidth: '180px',
+            overflow: 'hidden',
+            textOverflow: 'ellipsis',
+            whiteSpace: 'nowrap'
+          }}>
+            {post?.caption || (isFb ? 'Facebook Post' : 'Instagram Post')}
+          </span>
+        </div>
+      )}
+
+      {/* Video / Reel badge on bottom-left if video */}
+      {isVideo && (
+        <div style={{
+          position: 'absolute',
+          bottom: '8px',
+          left: '8px',
+          display: 'flex',
+          alignItems: 'center',
+          gap: '4px',
+          backgroundColor: 'rgba(0, 0, 0, 0.65)',
+          backdropFilter: 'blur(6px)',
+          padding: '3px 8px',
+          borderRadius: '12px',
+          color: 'white',
+          fontSize: '0.72rem',
+          fontWeight: '600',
+          boxShadow: '0 2px 4px rgba(0,0,0,0.3)',
+          border: '1px solid rgba(255,255,255,0.1)'
+        }}>
+          <Film size={11} /> Reel
+        </div>
+      )}
+
+      {/* Platform Badge Overlay (Top-Right) */}
+      {showBadge && (
+        isFb ? (
+          <div 
+            title="Facebook Post"
+            style={{ 
+              position: 'absolute', 
+              top: '8px', 
+              right: '8px', 
+              width: '24px', 
+              height: '24px', 
+              backgroundColor: '#1877f2', 
+              borderRadius: '50%', 
+              display: 'flex', 
+              alignItems: 'center', 
+              justifyContent: 'center', 
+              color: 'white',
+              boxShadow: '0 2px 6px rgba(0,0,0,0.4)',
+              border: '1px solid rgba(255,255,255,0.2)'
+            }}
+          >
+            <FacebookIcon size={13} />
+          </div>
+        ) : (
+          <div 
+            title="Instagram Post"
+            style={{ 
+              position: 'absolute', 
+              top: '8px', 
+              right: '8px', 
+              width: '24px', 
+              height: '24px', 
+              background: 'linear-gradient(45deg, #f09433 0%, #e6683c 25%, #dc2743 50%, #cc2366 75%, #bc1888 100%)', 
+              borderRadius: '50%', 
+              display: 'flex', 
+              alignItems: 'center', 
+              justifyContent: 'center', 
+              color: 'white',
+              boxShadow: '0 2px 6px rgba(0,0,0,0.4)',
+              border: '1px solid rgba(255,255,255,0.2)'
+            }}
+          >
+            <InstagramIcon size={12} />
+          </div>
+        )
+      )}
+    </div>
+  );
+};
 
 const API_BASE = import.meta.env.VITE_API_BASE || '/api/v1';
 
@@ -145,6 +415,11 @@ export default function App() {
     if (!date || isNaN(date.getTime()) || date.getFullYear() <= 1970) return 'N/A';
     const now = new Date();
     const diffTime = Math.abs(now - date);
+    if (diffTime < 60 * 1000) return 'Just now';
+    if (diffTime < 60 * 60 * 1000) {
+      const mins = Math.floor(diffTime / 60000);
+      return `${mins} ${mins === 1 ? 'min' : 'mins'} ago`;
+    }
     const diffDays = Math.floor(diffTime / (1000 * 60 * 60 * 24));
     if (diffDays === 0) return 'Today';
     if (diffDays === 1) return 'Yesterday';
@@ -152,21 +427,39 @@ export default function App() {
     return date.toLocaleDateString('en-IN', { day: 'numeric', month: 'long' });
   };
   
-  const checkIsFbPost = (post) => {
-    if (!post) return false;
-    return Boolean(post.facebook_account_id || post.facebook_page_id || post.is_facebook || (post.id && String(post.id).startsWith('fb_')));
-  };
-  
-  const getPostStatus = (post) => {
-    if (!post) return 'Setup';
+  const getFlowForPost = (post) => {
+    if (!post) return null;
     const isFb = checkIsFbPost(post);
     const postIdStr = String(post.id);
-    const flow = flows.find(f => isFb ? String(f.facebook_post_id) === postIdStr : String(f.instagram_post_id) === postIdStr);
+    // 1. Direct post flow
+    let flow = flows.find(f => isFb ? String(f.facebook_post_id) === postIdStr : String(f.instagram_post_id) === postIdStr);
+    if (flow) return flow;
+
+    // 2. Future flow covering all future posts
+    const postTime = post.timestamp ? new Date(post.timestamp).getTime() : null;
+    flow = flows.find(f => {
+      if (!f.is_active || !f.is_future_flow || !f.apply_to_all_future_posts) return false;
+      const accMatch = isFb
+        ? (f.facebook_account_id && String(f.facebook_account_id) === String(post.facebook_account_id))
+        : (f.instagram_account_id && String(f.instagram_account_id) === String(post.instagram_account_id));
+      if (!accMatch) return false;
+      if (postTime && f.created_at) {
+        const flowTime = new Date(f.created_at).getTime();
+        return postTime >= (flowTime - 3600000);
+      }
+      return true;
+    });
+    return flow || null;
+  };
+
+  const getPostStatus = (post) => {
+    if (!post) return 'Setup';
+    const flow = getFlowForPost(post);
     if (flow) {
       return flow.is_active ? 'Active' : 'Paused';
     }
     const hasDirect = post.keyword || post.reply_message || post.dm_message;
-    if (hasDirect) {
+    if (hasDirect || post.automation_status === 'active' || post.automation_status === 'paused') {
       return post.automation_status === 'active' ? 'Active' : (post.automation_status === 'paused' ? 'Paused' : 'Setup');
     }
     return 'Setup';
@@ -235,8 +528,7 @@ export default function App() {
   const handleTogglePostAutomation = async (post) => {
     if (!post) return;
     const isFb = checkIsFbPost(post);
-    const postIdStr = String(post.id);
-    const flow = flows.find(f => isFb ? String(f.facebook_post_id) === postIdStr : String(f.instagram_post_id) === postIdStr);
+    const flow = getFlowForPost(post);
     
     if (flow) {
       const updatedFlow = { ...flow, is_active: !flow.is_active };
@@ -344,8 +636,13 @@ export default function App() {
         : posts.find(p => String(p.id) === postIdStr || String(p.instagram_post_id) === postIdStr);
     } else if (flow.name && flow.name.startsWith("Post Flow: ")) {
       const titleSnippet = flow.name.replace("Post Flow: ", "").trim().toLowerCase();
-      matchedPost = posts.find(p => p.caption && p.caption.toLowerCase().includes(titleSnippet)) ||
-                    facebookPosts.find(p => (p.caption || p.message || '').toLowerCase().includes(titleSnippet));
+      matchedPost = posts.find(p => {
+        const pid = String(p.id).toLowerCase();
+        return pid === titleSnippet || titleSnippet.includes(pid) || (p.caption && p.caption.toLowerCase().includes(titleSnippet));
+      }) || facebookPosts.find(p => {
+        const pid = String(p.id).toLowerCase();
+        return pid === titleSnippet || titleSnippet.includes(pid) || ((p.caption || p.message || '').toLowerCase().includes(titleSnippet));
+      });
       if (matchedPost) {
         postId = matchedPost.id;
         isFb = !!matchedPost.facebook_account_id;
@@ -531,6 +828,7 @@ export default function App() {
   const [toasts, setToasts] = useState([]);
   const [isConnectingFB, setIsConnectingFB] = useState(false);
   const [isSyncingPosts, setIsSyncingPosts] = useState(false);
+  const [lastSyncedAt, setLastSyncedAt] = useState(null);
   const [postsFilter, setPostsFilter] = useState("all"); // "all", "posts", "reels"
   const [postsAutomationFilter, setPostsAutomationFilter] = useState("all"); // "all", "active", "setup", "paused"
   const [selectedLogPostId, setSelectedLogPostId] = useState("all"); // "all" or specific post ID
@@ -971,11 +1269,12 @@ export default function App() {
     setIsSyncingPosts(true);
     try {
       const promises = [];
-      const syncIg = postsFilterPlatform === 'instagram';
-      const syncFb = postsFilterPlatform === 'facebook';
+      const isDashboard = activeTab === 'dashboard';
+      const syncIg = isDashboard || postsFilterPlatform === 'all' || postsFilterPlatform === 'instagram';
+      const syncFb = isDashboard || postsFilterPlatform === 'all' || postsFilterPlatform === 'facebook';
 
       if (syncIg && accounts.length > 0) {
-        const igUrl = selectedInstagramAccount && selectedInstagramAccount !== 'all'
+        const igUrl = (!isDashboard && selectedInstagramAccount && selectedInstagramAccount !== 'all')
           ? `${API_BASE}/posts/sync?instagram_account_id=${selectedInstagramAccount}`
           : `${API_BASE}/posts/sync`;
         promises.push(
@@ -985,7 +1284,7 @@ export default function App() {
           }).then(async res => {
             if (res.ok) {
               const synced = await res.json();
-              if (selectedInstagramAccount && selectedInstagramAccount !== 'all') {
+              if (!isDashboard && selectedInstagramAccount && selectedInstagramAccount !== 'all') {
                 setPosts(prev => {
                   const others = prev.filter(p => String(p.instagram_account_id) !== String(selectedInstagramAccount));
                   return [...synced, ...others];
@@ -999,7 +1298,7 @@ export default function App() {
       }
 
       if (syncFb && facebookAccounts.length > 0) {
-        const fbUrl = selectedFacebookAccount && selectedFacebookAccount !== 'all'
+        const fbUrl = (!isDashboard && selectedFacebookAccount && selectedFacebookAccount !== 'all')
           ? `${API_BASE}/posts/facebook/sync?facebook_account_id=${selectedFacebookAccount}`
           : `${API_BASE}/posts/facebook/sync`;
         promises.push(
@@ -1009,7 +1308,7 @@ export default function App() {
           }).then(async res => {
             if (res.ok) {
               const synced = await res.json();
-              if (selectedFacebookAccount && selectedFacebookAccount !== 'all') {
+              if (!isDashboard && selectedFacebookAccount && selectedFacebookAccount !== 'all') {
                 setFacebookPosts(prev => {
                   const others = prev.filter(p => String(p.facebook_account_id) !== String(selectedFacebookAccount));
                   return [...synced, ...others];
@@ -1023,6 +1322,7 @@ export default function App() {
       }
 
       await Promise.all(promises);
+      setLastSyncedAt(new Date());
       addToast("Synchronized social posts with Meta successfully.", "success");
     } catch (err) {
       addToast("Connection error while syncing posts.", "error");
@@ -1777,10 +2077,22 @@ export default function App() {
 
   // Open Visual Flow Builder
   const handleOpenBuilder = (flow) => {
-    setSelectedFlow(flow);
+    const linkedInfo = getFlowLinkedPost(flow);
+    let preparedFlow = { ...flow };
+    if (linkedInfo?.postId) {
+      if (linkedInfo.isFb && !preparedFlow.facebook_post_id) {
+        preparedFlow.facebook_post_id = String(linkedInfo.postId);
+      } else if (!linkedInfo.isFb && !preparedFlow.instagram_post_id) {
+        preparedFlow.instagram_post_id = String(linkedInfo.postId);
+      }
+      if (!preparedFlow.is_future_flow) {
+        preparedFlow.is_future_flow = false;
+      }
+    }
+    setSelectedFlow(preparedFlow);
     setBuilderNodes(flow.nodes || []);
     setBuilderEdges(flow.edges || []);
-    setSelectedNode(flow.nodes[0] || null);
+    setSelectedNode(flow.nodes?.[0] || null);
     setActiveTab('builder');
   };
 
@@ -1788,8 +2100,7 @@ export default function App() {
     if (!post) return;
     
     const isFb = checkIsFbPost(post);
-    const postIdStr = String(post.id);
-    const existing = flows.find(f => isFb ? String(f.facebook_post_id) === postIdStr : String(f.instagram_post_id) === postIdStr);
+    const existing = getFlowForPost(post);
     
     if (existing) {
       handleOpenBuilder(existing);
@@ -1812,6 +2123,7 @@ export default function App() {
         facebook_account_id: isFb ? (post.facebook_account_id || defaultFbAccId) : null,
         instagram_post_id: isFb ? null : String(post.id),
         facebook_post_id: isFb ? String(post.id) : null,
+        is_future_flow: false,
         nodes: [
           { id: triggerId, type: "trigger", config: { keywords: ["price", "link", "info"], exact_word: false } },
           { id: replyId, type: "action_reply", config: { message: "Thanks for commenting! Check your DMs 📩" } },
@@ -1889,12 +2201,13 @@ export default function App() {
       instagram_account_id: defaultInstaId,
       facebook_account_id: defaultFbId,
       is_future_flow: true,
+      apply_to_all_future_posts: true,
       future_post_caption: "",
       future_flow_status: "pending",
       nodes: [
-        { id: triggerId, type: "trigger", config: { keywords: [], exact_word: true } },
-        { id: replyId, type: "action_reply", config: { message: "" } },
-        { id: dmId, type: "action_dm", config: { message: "" } }
+        { id: triggerId, type: "trigger", config: { keywords: ["Guide"], exact_word: false } },
+        { id: replyId, type: "action_reply", config: { message: "Thanks for commenting! Check your DMs 📩" } },
+        { id: dmId, type: "action_dm", config: { message: "Hey {{username}}, here is the link: https://example.com" } }
       ],
       edges: [
         { id: edgeId1, source_node_id: triggerId, target_node_id: replyId },
@@ -1946,19 +2259,26 @@ export default function App() {
   };
 
   const handleSaveFlow = async () => {
+    const linkedInfo = getFlowLinkedPost(selectedFlow);
+    const resolvedPostId = selectedFlow.instagram_post_id || (!selectedFlow.facebook_account_id && linkedInfo?.postId ? String(linkedInfo.postId) : null);
+    const resolvedFbPostId = selectedFlow.facebook_post_id || (selectedFlow.facebook_account_id && linkedInfo?.postId ? String(linkedInfo.postId) : null);
+    const isExplicitPostFlow = Boolean(selectedFlow.name?.startsWith("Post Flow: "));
+    const isFutureFlow = Boolean(selectedFlow.is_future_flow && !isExplicitPostFlow);
+
     const payload = {
       instagram_account_id: selectedFlow.instagram_account_id,
       facebook_account_id: selectedFlow.facebook_account_id,
-      instagram_post_id: selectedFlow.instagram_post_id || null,
-      facebook_post_id: selectedFlow.facebook_post_id || null,
+      instagram_post_id: resolvedPostId,
+      facebook_post_id: resolvedFbPostId,
       name: selectedFlow.name,
       is_active: selectedFlow.is_active,
       nodes: builderNodes,
       edges: builderEdges,
-      // Future flow fields
-      is_future_flow: selectedFlow.is_future_flow || false,
-      future_post_caption: selectedFlow.future_post_caption || null,
-      future_post_scheduled_at: selectedFlow.future_post_scheduled_at || null,
+      // Future flow fields (never on post-specific flows)
+      is_future_flow: isFutureFlow,
+      apply_to_all_future_posts: isFutureFlow ? Boolean(selectedFlow.apply_to_all_future_posts ?? true) : false,
+      future_post_caption: isFutureFlow ? (selectedFlow.future_post_caption || null) : null,
+      future_post_scheduled_at: isFutureFlow ? (selectedFlow.future_post_scheduled_at || null) : null,
     };
 
     if (demoMode) {
@@ -1971,7 +2291,11 @@ export default function App() {
             instagram_account_id: selectedFlow.instagram_account_id,
             facebook_account_id: selectedFlow.facebook_account_id,
             nodes: builderNodes, 
-            edges: builderEdges 
+            edges: builderEdges,
+            is_future_flow: isFutureFlow,
+            apply_to_all_future_posts: payload.apply_to_all_future_posts,
+            future_post_caption: payload.future_post_caption,
+            future_post_scheduled_at: payload.future_post_scheduled_at,
           };
         }
         return f;
@@ -2111,17 +2435,7 @@ export default function App() {
 
             {/* Post Snippet */}
             <div style={{ display: 'flex', gap: '16px', backgroundColor: 'rgba(255,255,255,0.02)', padding: '12px', borderRadius: '8px', marginBottom: '16px', border: '1px solid rgba(255,255,255,0.05)' }}>
-              {activeCommentsPost.media_type === 'VIDEO' ? (
-                <video 
-                  src={activeCommentsPost.media_url} 
-                  poster={activeCommentsPost.thumbnail_url || activeCommentsPost.media_url} 
-                  controls 
-                  playsInline
-                  style={{ width: '60px', height: '60px', objectFit: 'cover', borderRadius: '4px' }}
-                />
-              ) : (
-                <img src={activeCommentsPost.thumbnail_url || activeCommentsPost.media_url} style={{ width: '60px', height: '60px', objectFit: 'cover', borderRadius: '4px' }} alt="Post preview" />
-              )}
+              <PostPreviewMedia post={activeCommentsPost} variant="compact" showBadge={false} />
               <div style={{ flex: 1, minWidth: 0 }}>
                 <p style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
                   {activeCommentsPost.caption || "No caption"}
@@ -2665,7 +2979,11 @@ export default function App() {
                 Check for new posts
               </button>
               <span style={{ fontSize: '0.85rem', color: 'var(--text-secondary)' }}>
-                {isSyncingPosts ? "Syncing feed from platforms..." : "Last synced 10 minutes ago"}
+                {isSyncingPosts 
+                  ? "Syncing feed from platforms..." 
+                  : lastSyncedAt 
+                    ? `Last synced ${getRelativeTime(lastSyncedAt)}` 
+                    : "Last synced recently"}
               </span>
             </div>
           )}
@@ -2678,11 +2996,9 @@ export default function App() {
             {(() => {
               const postsReadyToSetup = [...posts, ...facebookPosts].filter(post => {
                 if (skippedPostIds.includes(post.id)) return false;
-                const isFb = checkIsFbPost(post);
-                const postIdStr = String(post.id);
-                const hasFlow = flows.some(f => isFb ? String(f.facebook_post_id) === postIdStr : String(f.instagram_post_id) === postIdStr);
+                const flow = getFlowForPost(post);
                 const hasDirect = post.keyword || post.reply_message || post.dm_message;
-                return !hasFlow && !hasDirect;
+                return !flow && !hasDirect && post.automation_status !== 'active';
               });
               postsReadyToSetup.sort((a, b) => {
                 const dateA = a.timestamp ? new Date(a.timestamp).getTime() : 0;
@@ -2725,7 +3041,7 @@ export default function App() {
                     marginBottom: '20px' 
                   }}>
                     {postsReadyToSetup.slice(0, 4).map(post => {
-                      const isFb = post.facebook_account_id !== undefined || ('facebook_account_id' in post);
+                      const isFb = checkIsFbPost(post);
                       return (
                         <div 
                           key={post.id} 
@@ -2738,36 +3054,7 @@ export default function App() {
                             minHeight: '390px'
                           }}
                         >
-                          <div style={{ position: 'relative', width: '100%', aspectRatio: '1.2', borderRadius: '8px', overflow: 'hidden', backgroundColor: '#101017' }}>
-                            <img 
-                              src={post.thumbnail_url || post.media_url} 
-                              alt="Post Preview" 
-                              style={{ width: '100%', height: '100%', objectFit: 'cover' }} 
-                            />
-                            {/* Instagram Icon Overlay */}
-                            {!isFb && (
-                              <div style={{ 
-                                position: 'absolute', 
-                                top: '8px', 
-                                right: '8px', 
-                                width: '24px', 
-                                height: '24px', 
-                                background: 'linear-gradient(45deg, #f09433 0%, #e6683c 25%, #dc2743 50%, #cc2366 75%, #bc1888 100%)', 
-                                borderRadius: '50%', 
-                                display: 'flex', 
-                                alignItems: 'center', 
-                                justifyContent: 'center', 
-                                color: 'white',
-                                boxShadow: '0 2px 6px rgba(0,0,0,0.3)'
-                              }}>
-                                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-                                  <rect x="2" y="2" width="20" height="20" rx="5" ry="5"></rect>
-                                  <path d="M16 11.37A4 4 0 1 1 12.63 8 4 4 0 0 1 16 11.37z"></path>
-                                  <line x1="17.5" y1="6.5" x2="17.51" y2="6.5"></line>
-                                </svg>
-                              </div>
-                            )}
-                          </div>
+                          <PostPreviewMedia post={post} variant="card" />
                           
                           <div style={{ flexGrow: 1, display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}>
                             <div>
@@ -3041,11 +3328,7 @@ export default function App() {
                               <tr key={post.id} style={{ borderBottom: '1px solid var(--border-color)', fontSize: '0.9rem', transition: 'background-color 0.2s' }}>
                                 {/* POST details */}
                                 <td style={{ padding: '12px 16px', display: 'flex', alignItems: 'center', gap: '12px' }}>
-                                  <img 
-                                    src={post.thumbnail_url || post.media_url} 
-                                    alt="Post Preview" 
-                                    style={{ width: '40px', height: '40px', objectFit: 'cover', borderRadius: '6px', backgroundColor: '#101017' }} 
-                                  />
+                                  <PostPreviewMedia post={post} variant="table" showBadge={false} />
                                   <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                                     {!isFb ? (
                                       <div style={{ 
@@ -6189,7 +6472,7 @@ export default function App() {
               </div>
 
               {/* Future Flow Pending Banner in Flow Editor */}
-              {selectedFlow.is_future_flow && selectedFlow.future_flow_status === 'pending' && (
+              {selectedFlow.is_future_flow && !linkedPostInBuilder && selectedFlow.future_flow_status === 'pending' && (
                 <div className="card" style={{
                   marginBottom: '20px',
                   padding: '14px 20px',
@@ -6421,143 +6704,123 @@ export default function App() {
                   </div>
                   <div className="form-group">
                     <label>Linked to Specific Post</label>
-                    <select
-                      className="form-control"
-                      value={selectedFlow.facebook_account_id ? (selectedFlow.facebook_post_id || "") : (selectedFlow.instagram_post_id || "")}
-                      onChange={(e) => {
-                        const val = e.target.value;
-                        if (selectedFlow.facebook_account_id) {
-                          setSelectedFlow(prev => ({
-                            ...prev,
-                            facebook_post_id: val || null,
-                            instagram_post_id: null
-                          }));
-                        } else {
-                          setSelectedFlow(prev => ({
-                            ...prev,
-                            instagram_post_id: val || null,
-                            facebook_post_id: null
-                          }));
-                        }
-                      }}
-                      style={{ backgroundColor: 'rgba(255,255,255,0.05)', color: 'white', border: '1px solid var(--border-color)', borderRadius: '6px', padding: '8px', width: '100%', fontSize: '0.85rem' }}
-                    >
-                      <option value="">General (All Posts / Account-wide)</option>
-                      {selectedFlow.facebook_account_id ? (
-                        [...facebookPosts]
-                          .filter(p => p.facebook_account_id === selectedFlow.facebook_account_id)
-                          .sort((a, b) => (b.timestamp ? new Date(b.timestamp).getTime() : 0) - (a.timestamp ? new Date(a.timestamp).getTime() : 0))
-                          .map(p => (
-                            <option key={p.id} value={p.id} style={{ backgroundColor: '#111827' }}>
-                              Post: {p.caption ? (p.caption.slice(0, 40) + "...") : "No Caption"} ({p.id})
-                            </option>
-                          ))
-                      ) : (
-                        [...posts]
-                          .filter(p => p.instagram_account_id === selectedFlow.instagram_account_id)
-                          .sort((a, b) => (b.timestamp ? new Date(b.timestamp).getTime() : 0) - (a.timestamp ? new Date(a.timestamp).getTime() : 0))
-                          .map(p => (
-                            <option key={p.id} value={p.id} style={{ backgroundColor: '#111827' }}>
-                              Post: {p.caption ? (p.caption.slice(0, 40) + "...") : "No Caption"} ({p.id})
-                            </option>
-                          ))
-                      )}
-                    </select>
-
-                    {/* Live Sidebar Post Preview */}
                     {(() => {
                       const sidebarPost = getFlowLinkedPost(selectedFlow);
-                      if (!sidebarPost) return null;
+                      const currentLinkedPostId = selectedFlow.facebook_account_id
+                        ? String(selectedFlow.facebook_post_id || (sidebarPost?.isFb ? sidebarPost.postId : "") || "")
+                        : String(selectedFlow.instagram_post_id || (!sidebarPost?.isFb ? sidebarPost?.postId : "") || "");
+
+                      const currentFilteredPosts = selectedFlow.facebook_account_id
+                        ? [...facebookPosts].filter(p => !selectedFlow.facebook_account_id || Number(p.facebook_account_id) === Number(selectedFlow.facebook_account_id))
+                        : [...posts].filter(p => !selectedFlow.instagram_account_id || Number(p.instagram_account_id) === Number(selectedFlow.instagram_account_id));
+
                       return (
-                        <div style={{
-                          marginTop: '10px',
-                          padding: '10px',
-                          backgroundColor: 'rgba(255, 255, 255, 0.03)',
-                          border: '1px solid var(--border-color)',
-                          borderRadius: '8px',
-                          display: 'flex',
-                          alignItems: 'center',
-                          gap: '10px'
-                        }}>
-                          {sidebarPost.mediaUrl ? (
-                            <img 
-                              src={sidebarPost.mediaUrl} 
-                              alt="Thumbnail" 
-                              style={{ width: '40px', height: '40px', objectFit: 'cover', borderRadius: '6px', border: '1px solid var(--border-color)', flexShrink: 0 }}
-                              onError={(e) => { e.target.style.display = 'none'; }}
-                            />
-                          ) : (
-                            <div style={{ width: '40px', height: '40px', borderRadius: '6px', backgroundColor: '#1f2937', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.65rem', color: '#9ca3af', flexShrink: 0 }}>
-                              📷
+                        <>
+                          <select
+                            className="form-control"
+                            value={currentLinkedPostId}
+                            onChange={(e) => {
+                              const val = e.target.value;
+                              if (selectedFlow.facebook_account_id) {
+                                setSelectedFlow(prev => ({
+                                  ...prev,
+                                  facebook_post_id: val || null,
+                                  instagram_post_id: null,
+                                  is_future_flow: prev.is_future_flow
+                                }));
+                              } else {
+                                setSelectedFlow(prev => ({
+                                  ...prev,
+                                  instagram_post_id: val || null,
+                                  facebook_post_id: null,
+                                  is_future_flow: prev.is_future_flow
+                                }));
+                              }
+                            }}
+                            style={{ backgroundColor: 'rgba(255,255,255,0.05)', color: 'white', border: '1px solid var(--border-color)', borderRadius: '6px', padding: '8px', width: '100%', fontSize: '0.85rem' }}
+                          >
+                            <option value="">General (All Posts / Account-wide)</option>
+                            {/* Fallback option if currently linked post is not in loaded posts array */}
+                            {currentLinkedPostId && !currentFilteredPosts.some(p => String(p.id) === currentLinkedPostId) && (
+                              <option value={currentLinkedPostId} style={{ backgroundColor: '#111827' }}>
+                                Post: {sidebarPost?.caption ? (sidebarPost.caption.slice(0, 40) + "...") : currentLinkedPostId} ({currentLinkedPostId})
+                              </option>
+                            )}
+                            {selectedFlow.facebook_account_id ? (
+                              currentFilteredPosts
+                                .sort((a, b) => (b.timestamp ? new Date(b.timestamp).getTime() : 0) - (a.timestamp ? new Date(a.timestamp).getTime() : 0))
+                                .map(p => (
+                                  <option key={String(p.id)} value={String(p.id)} style={{ backgroundColor: '#111827' }}>
+                                    Post: {p.caption ? (p.caption.slice(0, 40) + "...") : "No Caption"} ({p.id})
+                                  </option>
+                                ))
+                            ) : (
+                              currentFilteredPosts
+                                .sort((a, b) => (b.timestamp ? new Date(b.timestamp).getTime() : 0) - (a.timestamp ? new Date(a.timestamp).getTime() : 0))
+                                .map(p => (
+                                  <option key={String(p.id)} value={String(p.id)} style={{ backgroundColor: '#111827' }}>
+                                    Post: {p.caption ? (p.caption.slice(0, 40) + "...") : "No Caption"} ({p.id})
+                                  </option>
+                                ))
+                            )}
+                          </select>
+
+                          {/* Live Sidebar Post Preview */}
+                          {sidebarPost && (
+                            <div style={{
+                              marginTop: '10px',
+                              padding: '10px',
+                              backgroundColor: 'rgba(255, 255, 255, 0.03)',
+                              border: '1px solid var(--border-color)',
+                              borderRadius: '8px',
+                              display: 'flex',
+                              alignItems: 'center',
+                              gap: '10px'
+                            }}>
+                              {sidebarPost.mediaUrl ? (
+                                <img 
+                                  src={sidebarPost.mediaUrl} 
+                                  alt="Thumbnail" 
+                                  style={{ width: '40px', height: '40px', objectFit: 'cover', borderRadius: '6px', border: '1px solid var(--border-color)', flexShrink: 0 }}
+                                  onError={(e) => { e.target.style.display = 'none'; }}
+                                />
+                              ) : (
+                                <div style={{ width: '40px', height: '40px', borderRadius: '6px', backgroundColor: '#1f2937', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.65rem', color: '#9ca3af', flexShrink: 0 }}>
+                                  📷
+                                </div>
+                              )}
+                              <div style={{ flex: 1, minWidth: 0 }}>
+                                <p style={{ margin: 0, fontSize: '0.78rem', color: 'white', fontWeight: '500', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                                  {sidebarPost.caption || `Post ${sidebarPost.postId}`}
+                                </p>
+                                <span style={{ fontSize: '0.7rem', color: 'var(--text-secondary)' }}>
+                                  ID: {sidebarPost.postId}
+                                </span>
+                              </div>
                             </div>
                           )}
-                          <div style={{ flex: 1, minWidth: 0 }}>
-                            <p style={{ margin: 0, fontSize: '0.78rem', color: 'white', fontWeight: '500', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                              {sidebarPost.caption || `Post ${sidebarPost.postId}`}
-                            </p>
-                            <span style={{ fontSize: '0.7rem', color: 'var(--text-secondary)' }}>
-                              ID: {sidebarPost.postId}
-                            </span>
-                          </div>
-                        </div>
+                        </>
                       );
                     })()}
                   </div>
                 </div>
 
                 {/* ─────────────────────────────────────────────── */}
-                {/* FUTURE FLOW SECTION                            */}
+                {/* FUTURE FLOW SECTION (Hidden on Post Specific Flows) */}
                 {/* ─────────────────────────────────────────────── */}
-                <div style={{ marginBottom: '24px', paddingBottom: '20px', borderBottom: '1px solid var(--border-color)' }}>
-                  <h3 style={{ marginBottom: '14px', fontSize: '1.05rem', borderBottom: '1px solid var(--border-color)', paddingBottom: '12px' }}>
-                    ⏳ Future Flow
-                  </h3>
+                {(() => {
+                  const isExplicitPostFlow = Boolean(selectedFlow.name?.startsWith("Post Flow: "));
 
-                  {/* Toggle */}
-                  <div style={{
-                    display: 'flex',
-                    alignItems: 'flex-start',
-                    gap: '12px',
-                    padding: '14px',
-                    borderRadius: '10px',
-                    border: selectedFlow.is_future_flow
-                      ? '1px solid rgba(217, 119, 6, 0.5)'
-                      : '1px solid var(--border-color)',
-                    background: selectedFlow.is_future_flow
-                      ? 'linear-gradient(135deg, rgba(217,119,6,0.08), rgba(180,83,9,0.04))'
-                      : 'rgba(255,255,255,0.02)',
-                    marginBottom: '12px',
-                    transition: 'all 0.2s ease'
-                  }}>
-                    <input
-                      type="checkbox"
-                      id="future-flow-toggle"
-                      checked={!!selectedFlow.is_future_flow}
-                      onChange={(e) => setSelectedFlow(prev => ({
-                        ...prev,
-                        is_future_flow: e.target.checked,
-                        // Clear post link when enabling future flow mode
-                        instagram_post_id: e.target.checked ? null : prev.instagram_post_id,
-                        facebook_post_id: e.target.checked ? null : prev.facebook_post_id,
-                      }))}
-                      style={{ width: '17px', height: '17px', cursor: 'pointer', marginTop: '2px', flexShrink: 0 }}
-                    />
-                    <div>
-                      <label htmlFor="future-flow-toggle" style={{ margin: 0, cursor: 'pointer', fontSize: '0.9rem', fontWeight: '600', color: selectedFlow.is_future_flow ? '#d97706' : 'white', display: 'block', marginBottom: '4px' }}>
-                        Enable Future Flow Mode
-                      </label>
-                      <p style={{ margin: 0, fontSize: '0.75rem', color: 'var(--text-secondary)', lineHeight: '1.4' }}>
-                        Set up automation for a post that hasn't been published yet. The system will scan for the post every 5 minutes and automatically activate when it goes live.
-                      </p>
-                    </div>
-                  </div>
+                  // Post-specific flows do not need Future Flow options
+                  if (isExplicitPostFlow || !selectedFlow.is_future_flow) return null;
 
-                  {/* Future Flow inputs (only shown when enabled) */}
-                  {selectedFlow.is_future_flow && (
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
-                      {/* Status badge */}
-                      {selectedFlow.future_flow_status && (
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  return (
+                    <div style={{ marginBottom: '24px', paddingBottom: '20px', borderBottom: '1px solid var(--border-color)' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '14px', borderBottom: '1px solid var(--border-color)', paddingBottom: '12px' }}>
+                        <h3 style={{ margin: 0, fontSize: '1.05rem' }}>
+                          ⏳ Future Flow
+                        </h3>
+                        {selectedFlow.future_flow_status && (
                           <span style={{
                             fontSize: '0.75rem',
                             fontWeight: '700',
@@ -6570,56 +6833,59 @@ export default function App() {
                           }}>
                             {selectedFlow.future_flow_status === 'resolved' ? '✅ Resolved' : '⏳ Awaiting Post'}
                           </span>
-                          {selectedFlow.future_flow_last_scanned_at && (
-                            <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>
-                              Last scan: {new Date(selectedFlow.future_flow_last_scanned_at).toLocaleTimeString()}
-                            </span>
-                          )}
-                        </div>
-                      )}
-
-                      {/* DM Attachment Notice & Apply to all future posts option */}
-                      <div style={{ margin: '4px 0 8px 0' }}>
-                        <p style={{ margin: '0 0 12px 0', fontSize: '0.85rem', color: 'var(--text-secondary)', lineHeight: '1.5' }}>
-                          Compose your DM below and it will be automatically attached to your next post or reel.{' '}
-                          <a 
-                            href="#" 
-                            onClick={(e) => { e.preventDefault(); addToast("When enabled, this automation attaches to the next published post on your connected channel.", "info"); }}
-                            style={{ color: '#3b82f6', textDecoration: 'underline', cursor: 'pointer' }}
-                          >
-                            Learn more
-                          </a>
-                        </p>
-
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                          <input
-                            type="checkbox"
-                            id="apply-all-future-posts"
-                            checked={!!selectedFlow.apply_to_all_future_posts}
-                            onChange={(e) => setSelectedFlow(prev => ({ ...prev, apply_to_all_future_posts: e.target.checked }))}
-                            style={{ width: '17px', height: '17px', cursor: 'pointer', accentColor: '#007bff' }}
-                          />
-                          <label htmlFor="apply-all-future-posts" style={{ fontSize: '0.88rem', color: 'white', cursor: 'pointer', margin: 0, fontWeight: '500' }}>
-                            Apply Next Post to all future posts
-                          </label>
-                        </div>
+                        )}
                       </div>
 
-                      {/* Manual scan button */}
-                      {selectedFlow.future_flow_status !== 'resolved' && !selectedFlow.id.startsWith('flow_') && (
-                        <button
-                          type="button"
-                          className={`btn ${scanningFlowId === selectedFlow.id ? 'btn-disabled' : 'btn-secondary'}`}
-                          onClick={() => handleScanFutureFlow(selectedFlow.id)}
-                          disabled={scanningFlowId !== null}
-                          style={{ width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px', fontSize: '0.85rem', border: '1px solid #d97706', color: '#d97706' }}
-                        >
-                          {scanningFlowId === selectedFlow.id ? '🔄 Scanning for post...' : '🔍 Scan for Post Now'}
-                        </button>
-                      )}
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+                        {selectedFlow.future_flow_last_scanned_at && (
+                          <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>
+                            Last scan: {new Date(selectedFlow.future_flow_last_scanned_at).toLocaleTimeString()}
+                          </span>
+                        )}
+
+                        {/* DM Attachment Notice & Apply to all future posts option */}
+                        <div style={{ margin: '4px 0 8px 0' }}>
+                          <p style={{ margin: '0 0 12px 0', fontSize: '0.85rem', color: 'var(--text-secondary)', lineHeight: '1.5' }}>
+                            Compose your DM below and it will be automatically attached to your next post or reel.{' '}
+                            <a 
+                              href="#" 
+                              onClick={(e) => { e.preventDefault(); addToast("When enabled, this automation attaches to the next published post on your connected channel.", "info"); }}
+                              style={{ color: '#3b82f6', textDecoration: 'underline', cursor: 'pointer' }}
+                            >
+                              Learn more
+                            </a>
+                          </p>
+
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                            <input
+                              type="checkbox"
+                              id="apply-all-future-posts"
+                              checked={!!selectedFlow.apply_to_all_future_posts}
+                              onChange={(e) => setSelectedFlow(prev => ({ ...prev, apply_to_all_future_posts: e.target.checked }))}
+                              style={{ width: '17px', height: '17px', cursor: 'pointer', accentColor: '#007bff' }}
+                            />
+                            <label htmlFor="apply-all-future-posts" style={{ fontSize: '0.88rem', color: 'white', cursor: 'pointer', margin: 0, fontWeight: '500' }}>
+                              Apply Next Post to all future posts
+                            </label>
+                          </div>
+                        </div>
+
+                        {/* Manual scan button */}
+                        {!selectedFlow.id.startsWith('flow_') && (selectedFlow.future_flow_status !== 'resolved' || selectedFlow.apply_to_all_future_posts) && (
+                          <button
+                            type="button"
+                            className={`btn ${scanningFlowId === selectedFlow.id ? 'btn-disabled' : 'btn-secondary'}`}
+                            onClick={() => handleScanFutureFlow(selectedFlow.id)}
+                            disabled={scanningFlowId !== null}
+                            style={{ width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px', fontSize: '0.85rem', border: '1px solid #d97706', color: '#d97706' }}
+                          >
+                            {scanningFlowId === selectedFlow.id ? '🔄 Scanning for post...' : '🔍 Scan for Post Now'}
+                          </button>
+                        )}
+                      </div>
                     </div>
-                  )}
-                </div>
+                  );
+                })()}
 
                 <h3 style={{ marginBottom: '16px', fontSize: '1.05rem', borderBottom: '1px solid var(--border-color)', paddingBottom: '12px' }}>
                   Node Settings

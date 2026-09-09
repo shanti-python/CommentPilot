@@ -1,6 +1,7 @@
 import datetime
 import re
 import json
+from typing import Dict, Any, Optional
 from sqlalchemy.ext.asyncio import AsyncSession
 from loguru import logger
 
@@ -220,12 +221,27 @@ class CommentProcessorService:
         if target_flow_id:
             active_flows = [f for f in active_flows if f.id == target_flow_id]
         else:
-            # Filter active flows: prefer post-specific flows, fallback to general ones
+            # Filter active flows:
+            # 1. Post-specific flows matched to this media_id (or resolved future flow for this media_id)
             post_specific_flows = [f for f in active_flows if f.instagram_post_id == media_id]
-            if post_specific_flows:
-                active_flows = post_specific_flows
+            # 2. Future flows with apply_to_all_future_posts enabled
+            future_all_flows = []
+            if post and post.timestamp:
+                for f in active_flows:
+                    if f.is_future_flow and f.apply_to_all_future_posts:
+                        if f.created_at and post.timestamp >= (f.created_at - datetime.timedelta(hours=1)):
+                            future_all_flows.append(f)
+
+            if post_specific_flows or future_all_flows:
+                seen_flow_ids = set()
+                combined = []
+                for f in post_specific_flows + future_all_flows:
+                    if f.id not in seen_flow_ids:
+                        seen_flow_ids.add(f.id)
+                        combined.append(f)
+                active_flows = combined
             else:
-                active_flows = [f for f in active_flows if f.instagram_post_id is None]
+                active_flows = [f for f in active_flows if f.instagram_post_id is None and not f.is_future_flow]
         
         matched_any_flow = False
         flows_to_run = []
@@ -474,12 +490,25 @@ class CommentProcessorService:
         if target_flow_id:
             active_flows = [f for f in active_flows if f.id == target_flow_id]
         else:
-            # Filter active flows: prefer post-specific flows, fallback to general ones
+            # Filter active flows:
             post_specific_flows = [f for f in active_flows if f.facebook_post_id == media_id]
-            if post_specific_flows:
-                active_flows = post_specific_flows
+            future_all_flows = []
+            if post and post.timestamp:
+                for f in active_flows:
+                    if f.is_future_flow and f.apply_to_all_future_posts:
+                        if f.created_at and post.timestamp >= (f.created_at - datetime.timedelta(hours=1)):
+                            future_all_flows.append(f)
+
+            if post_specific_flows or future_all_flows:
+                seen_flow_ids = set()
+                combined = []
+                for f in post_specific_flows + future_all_flows:
+                    if f.id not in seen_flow_ids:
+                        seen_flow_ids.add(f.id)
+                        combined.append(f)
+                active_flows = combined
             else:
-                active_flows = [f for f in active_flows if f.facebook_post_id is None]
+                active_flows = [f for f in active_flows if f.facebook_post_id is None and not f.is_future_flow]
         
         matched_any_flow = False
         flows_to_run = []
@@ -535,6 +564,419 @@ class CommentProcessorService:
         
         logger.info(f"Finished processing Facebook comment {comment_id}. Final status: {event.status}")
         return event
+
+    async def scan_and_process_pending_comments(
+        self,
+        db: AsyncSession,
+        user_id: Optional[int] = None,
+        account_id: Optional[int] = None,
+        target_post_id: Optional[str] = None,
+        target_flow_id: Optional[str] = None,
+        since_timestamp: Optional[datetime.datetime] = None
+    ) -> Dict[str, Any]:
+        """
+        Scan comments from Meta Graph API for posts linked to active flows (or all posts),
+        cache comments, and execute matching automation rules for unreplied comments.
+        """
+        from app.utils.text import parse_iso_timestamp
+        processed_comment_ids = set()
+        errors = []
+
+        # 1. Instagram Accounts
+        if user_id:
+            insta_accounts = await instagram_account_repo.get_by_user_id(db, user_id=user_id)
+        else:
+            insta_accounts = await instagram_account_repo.get_multi(db, limit=500)
+
+        if account_id:
+            insta_accounts = [acc for acc in insta_accounts if acc.id == account_id]
+
+        for account in insta_accounts:
+            try:
+                active_flows = await automation_flow_repo.get_active_by_instagram_account_id(db, account.id)
+                if target_flow_id:
+                    active_flows = [f for f in active_flows if f.id == target_flow_id]
+                if not active_flows:
+                    continue
+
+                # 1. Sync fresh posts from Meta Graph API so new posts are discovered
+                try:
+                    fresh_posts = await meta_client.get_instagram_posts(
+                        instagram_business_account_id=account.instagram_business_account_id,
+                        page_access_token=account.page_access_token,
+                        max_items=10
+                    )
+                    for p in fresh_posts:
+                        raw_ts = p.get("timestamp") or p.get("created_time")
+                        ts_val = parse_iso_timestamp(raw_ts) or datetime.datetime.utcnow()
+                        post_in = {
+                            "id": p["id"],
+                            "instagram_account_id": account.id,
+                            "caption": p.get("caption"),
+                            "media_type": p.get("media_type"),
+                            "media_url": p.get("media_url"),
+                            "thumbnail_url": p.get("thumbnail_url"),
+                            "permalink": p.get("permalink"),
+                            "timestamp": ts_val,
+                        }
+                        existing_p = await post_repo.get(db, p["id"])
+                        if existing_p:
+                            await post_repo.update(db, db_obj=existing_p, obj_in=post_in)
+                        else:
+                            await post_repo.create(db, obj_in=post_in)
+                    await db.commit()
+                except Exception as sync_err:
+                    logger.warning(f"Could not sync fresh posts from Instagram for account {account.id}: {sync_err}")
+
+                # 2. Check if any pending future flows can be resolved to newly synced posts
+                for f in active_flows:
+                    if f.is_future_flow:
+                        account_posts = await post_repo.get_by_instagram_account_id(db, instagram_account_id=account.id)
+                        eligible_posts = [
+                            p for p in account_posts
+                            if not str(p.id).startswith("future_")
+                            and p.timestamp is not None
+                            and p.timestamp >= (f.created_at - datetime.timedelta(hours=1))
+                        ]
+                        if f.apply_to_all_future_posts:
+                            for ep in eligible_posts:
+                                if ep.automation_status != "active":
+                                    ep.automation_status = "active"
+                                    db.add(ep)
+                            await db.commit()
+
+                        if f.future_flow_status == 'pending' or not f.instagram_post_id:
+                            if eligible_posts:
+                                best_p = None
+                                if f.future_post_caption:
+                                    from app.api.api_v1.endpoints.automation import _caption_similarity
+                                    best_s = 0.0
+                                    for ep in eligible_posts:
+                                        s = _caption_similarity(f.future_post_caption, ep.caption or "")
+                                        if s > best_s:
+                                            best_s = s
+                                            best_p = ep
+                                    if best_s < 0.35:
+                                        best_p = None
+                                else:
+                                    sorted_p = sorted(eligible_posts, key=lambda x: x.timestamp or datetime.datetime.min, reverse=True)
+                                    best_p = sorted_p[0]
+
+                                if best_p:
+                                    logger.info(f"[PeriodicScanner] Resolving future flow {f.id} to post {best_p.id}")
+                                    f.future_flow_status = "resolved"
+                                    f.instagram_post_id = best_p.id
+                                    f.future_flow_last_scanned_at = datetime.datetime.utcnow()
+                                    best_p.automation_status = "active"
+                                    db.add(best_p)
+                                    db.add(f)
+                                    await db.commit()
+
+                posts = await post_repo.get_by_instagram_account_id(db, instagram_account_id=account.id)
+                if target_post_id:
+                    posts = [p for p in posts if p.id == target_post_id]
+                else:
+                    linked_post_ids = {f.instagram_post_id for f in active_flows if f.instagram_post_id}
+                    has_future_all = any(f.is_future_flow and f.apply_to_all_future_posts for f in active_flows)
+                    has_general_flow = any(f.instagram_post_id is None and not f.is_future_flow for f in active_flows)
+
+                    if has_future_all:
+                        future_flows = [f for f in active_flows if f.is_future_flow and f.apply_to_all_future_posts and f.created_at]
+                        if future_flows:
+                            min_created = min(f.created_at for f in future_flows)
+                            future_eligible_ids = {p.id for p in posts if p.timestamp and p.timestamp >= (min_created - datetime.timedelta(hours=1))}
+                            linked_post_ids = linked_post_ids.union(future_eligible_ids)
+
+                    if has_general_flow or has_future_all:
+                        posts_dict = {p.id: p for p in posts[:5]}
+                        for p in posts:
+                            if p.id in linked_post_ids:
+                                posts_dict[p.id] = p
+                        posts = list(posts_dict.values())
+                    elif linked_post_ids:
+                        posts = [p for p in posts if p.id in linked_post_ids]
+                    else:
+                        posts = posts[:3]
+
+                for post in posts:
+                    try:
+                        meta_comments = await meta_client.get_instagram_comments(
+                            media_id=post.id,
+                            page_access_token=account.page_access_token
+                        )
+
+                        # Cache comments in DB
+                        for mc in meta_comments:
+                            raw_ts = mc.get("timestamp")
+                            ts_val = parse_iso_timestamp(raw_ts) or datetime.datetime.utcnow()
+
+                            comment_in = {
+                                "id": mc["id"],
+                                "media_id": post.id,
+                                "text": mc.get("text", ""),
+                                "username": mc.get("username", "anonymous"),
+                                "timestamp": ts_val,
+                                "parent_id": mc.get("parent_id")
+                            }
+                            existing_comment = await comment_repo.get(db, id=mc["id"])
+                            if existing_comment:
+                                await comment_repo.update(db, db_obj=existing_comment, obj_in=comment_in)
+                            else:
+                                await comment_repo.create(db, obj_in=comment_in)
+                        await db.commit()
+
+                        # Collect all replied-to comment IDs from DB and API
+                        db_comments = await comment_repo.get_by_post_id(db, post_id=post.id)
+                        replied_comment_ids = {c.parent_id for c in db_comments if c.parent_id}
+                        for mc in meta_comments:
+                            if mc.get("parent_id"):
+                                replied_comment_ids.add(mc.get("parent_id"))
+
+                        for mc in meta_comments:
+                            comment_id = mc["id"]
+                            # Skip replies
+                            if mc.get("parent_id"):
+                                continue
+
+                            # Check existing event
+                            existing_event = await comment_event_repo.get_by_comment_id(db, comment_id)
+                            if existing_event:
+                                if existing_event.status == "processed":
+                                    if since_timestamp and existing_event.processed_at and existing_event.processed_at >= since_timestamp:
+                                        processed_comment_ids.add(comment_id)
+                                    continue
+                                elif existing_event.status == "ignored":
+                                    continue
+                                else:
+                                    await db.delete(existing_event)
+                                    await db.commit()
+
+                            # Skip if already replied to on Instagram
+                            if comment_id in replied_comment_ids:
+                                continue
+
+                            raw_ts = mc.get("timestamp")
+                            ts_val = parse_iso_timestamp(raw_ts) or datetime.datetime.utcnow()
+
+                            logger.info(f"[PeriodicScanner] Triggering processing for Instagram comment {comment_id} on post {post.id}")
+                            proc_res = await self.process_comment(
+                                db=db,
+                                instagram_business_account_id=account.instagram_business_account_id,
+                                comment_id=comment_id,
+                                media_id=post.id,
+                                text=mc.get("text", ""),
+                                username=mc.get("username", "anonymous"),
+                                timestamp=ts_val,
+                                commenter_id=mc.get("commenter_id"),
+                                target_flow_id=target_flow_id
+                            )
+                            if proc_res and getattr(proc_res, "status", None) == "processed":
+                                processed_comment_ids.add(comment_id)
+                    except Exception as post_err:
+                        logger.error(f"Error scanning comments for IG post {post.id}: {post_err}")
+                        errors.append(str(post_err))
+            except Exception as acc_err:
+                logger.error(f"Error scanning comments for IG account {account.id}: {acc_err}")
+                errors.append(str(acc_err))
+
+        # 2. Facebook Accounts
+        if user_id:
+            fb_accounts = await facebook_account_repo.get_by_user_id(db, user_id=user_id)
+        else:
+            fb_accounts = await facebook_account_repo.get_multi(db, limit=500)
+
+        if account_id:
+            fb_accounts = [acc for acc in fb_accounts if acc.id == account_id]
+
+        for account in fb_accounts:
+            try:
+                active_flows = await automation_flow_repo.get_active_by_facebook_account_id(db, account.id)
+                if target_flow_id:
+                    active_flows = [f for f in active_flows if f.id == target_flow_id]
+                if not active_flows:
+                    continue
+
+                # 1. Sync fresh posts from Facebook Page
+                try:
+                    fresh_posts = await meta_client.get_facebook_posts(
+                        page_id=account.facebook_page_id,
+                        page_access_token=account.page_access_token
+                    )
+                    for p in fresh_posts:
+                        raw_ts = p.get("timestamp") or p.get("created_time")
+                        ts_val = parse_iso_timestamp(raw_ts) or datetime.datetime.utcnow()
+                        post_in = {
+                            "id": p["id"],
+                            "facebook_account_id": account.id,
+                            "caption": p.get("caption"),
+                            "media_type": p.get("media_type"),
+                            "media_url": p.get("media_url"),
+                            "thumbnail_url": p.get("thumbnail_url"),
+                            "permalink": p.get("permalink"),
+                            "timestamp": ts_val,
+                        }
+                        existing_p = await facebook_post_repo.get(db, p["id"])
+                        if existing_p:
+                            await facebook_post_repo.update(db, db_obj=existing_p, obj_in=post_in)
+                        else:
+                            await facebook_post_repo.create(db, obj_in=post_in)
+                    await db.commit()
+                except Exception as sync_err:
+                    logger.warning(f"Could not sync fresh posts from Facebook for account {account.id}: {sync_err}")
+
+                # 2. Check if any pending future flows can be resolved to newly synced posts
+                for f in active_flows:
+                    if f.is_future_flow:
+                        account_posts = await facebook_post_repo.get_by_facebook_account_id(db, facebook_account_id=account.id)
+                        eligible_posts = [
+                            p for p in account_posts
+                            if not str(p.id).startswith("future_")
+                            and p.timestamp is not None
+                            and p.timestamp >= (f.created_at - datetime.timedelta(hours=1))
+                        ]
+                        if f.apply_to_all_future_posts:
+                            for ep in eligible_posts:
+                                if ep.automation_status != "active":
+                                    ep.automation_status = "active"
+                                    db.add(ep)
+                            await db.commit()
+
+                        if f.future_flow_status == 'pending' or not f.facebook_post_id:
+                            if eligible_posts:
+                                best_p = None
+                                if f.future_post_caption:
+                                    from app.api.api_v1.endpoints.automation import _caption_similarity
+                                    best_s = 0.0
+                                    for ep in eligible_posts:
+                                        s = _caption_similarity(f.future_post_caption, ep.caption or "")
+                                        if s > best_s:
+                                            best_s = s
+                                            best_p = ep
+                                    if best_s < 0.35:
+                                        best_p = None
+                                else:
+                                    sorted_p = sorted(eligible_posts, key=lambda x: x.timestamp or datetime.datetime.min, reverse=True)
+                                    best_p = sorted_p[0]
+
+                                if best_p:
+                                    logger.info(f"[PeriodicScanner] Resolving Facebook future flow {f.id} to post {best_p.id}")
+                                    f.future_flow_status = "resolved"
+                                    f.facebook_post_id = best_p.id
+                                    f.future_flow_last_scanned_at = datetime.datetime.utcnow()
+                                    best_p.automation_status = "active"
+                                    db.add(best_p)
+                                    db.add(f)
+                                    await db.commit()
+
+                posts = await facebook_post_repo.get_by_facebook_account_id(db, facebook_account_id=account.id)
+                if target_post_id:
+                    posts = [p for p in posts if p.id == target_post_id]
+                else:
+                    linked_post_ids = {f.facebook_post_id for f in active_flows if f.facebook_post_id}
+                    has_future_all = any(f.is_future_flow and f.apply_to_all_future_posts for f in active_flows)
+                    has_general_flow = any(f.facebook_post_id is None and not f.is_future_flow for f in active_flows)
+
+                    if has_future_all:
+                        future_flows = [f for f in active_flows if f.is_future_flow and f.apply_to_all_future_posts and f.created_at]
+                        if future_flows:
+                            min_created = min(f.created_at for f in future_flows)
+                            future_eligible_ids = {p.id for p in posts if p.timestamp and p.timestamp >= (min_created - datetime.timedelta(hours=1))}
+                            linked_post_ids = linked_post_ids.union(future_eligible_ids)
+
+                    if has_general_flow or has_future_all:
+                        posts_dict = {p.id: p for p in posts[:5]}
+                        for p in posts:
+                            if p.id in linked_post_ids:
+                                posts_dict[p.id] = p
+                        posts = list(posts_dict.values())
+                    elif linked_post_ids:
+                        posts = [p for p in posts if p.id in linked_post_ids]
+                    else:
+                        posts = posts[:3]
+
+                for post in posts:
+                    try:
+                        meta_comments = await meta_client.get_facebook_comments(
+                            post_id=post.id,
+                            page_access_token=account.page_access_token
+                        )
+
+                        for mc in meta_comments:
+                            raw_ts = mc.get("timestamp")
+                            ts_val = parse_iso_timestamp(raw_ts) or datetime.datetime.utcnow()
+
+                            comment_in = {
+                                "id": mc["id"],
+                                "media_id": post.id,
+                                "text": mc.get("text", ""),
+                                "username": mc.get("username", "anonymous"),
+                                "timestamp": ts_val,
+                                "parent_id": mc.get("parent_id")
+                            }
+                            existing_comment = await facebook_comment_repo.get(db, id=mc["id"])
+                            if existing_comment:
+                                await facebook_comment_repo.update(db, db_obj=existing_comment, obj_in=comment_in)
+                            else:
+                                await facebook_comment_repo.create(db, obj_in=comment_in)
+                        await db.commit()
+
+                        db_comments = await facebook_comment_repo.get_by_post_id(db, post_id=post.id)
+                        replied_comment_ids = {c.parent_id for c in db_comments if c.parent_id}
+                        for mc in meta_comments:
+                            if mc.get("parent_id"):
+                                replied_comment_ids.add(mc.get("parent_id"))
+
+                        for mc in meta_comments:
+                            comment_id = mc["id"]
+                            # Skip replies
+                            if mc.get("parent_id"):
+                                continue
+
+                            existing_event = await facebook_comment_event_repo.get_by_comment_id(db, comment_id)
+                            if existing_event:
+                                if existing_event.status == "processed":
+                                    if since_timestamp and existing_event.processed_at and existing_event.processed_at >= since_timestamp:
+                                        processed_comment_ids.add(comment_id)
+                                    continue
+                                elif existing_event.status == "ignored":
+                                    continue
+                                else:
+                                    await db.delete(existing_event)
+                                    await db.commit()
+
+                            # Skip if already replied to on Facebook
+                            if comment_id in replied_comment_ids:
+                                continue
+
+                            raw_ts = mc.get("timestamp")
+                            ts_val = parse_iso_timestamp(raw_ts) or datetime.datetime.utcnow()
+
+                            logger.info(f"[PeriodicScanner] Triggering processing for Facebook comment {comment_id} on post {post.id}")
+                            proc_res = await self.process_facebook_comment(
+                                db=db,
+                                facebook_page_id=account.facebook_page_id,
+                                comment_id=comment_id,
+                                media_id=post.id,
+                                text=mc.get("text", ""),
+                                username=mc.get("username", "anonymous"),
+                                timestamp=ts_val,
+                                commenter_id=mc.get("commenter_id"),
+                                target_flow_id=target_flow_id
+                            )
+                            if proc_res and getattr(proc_res, "status", None) == "processed":
+                                processed_comment_ids.add(comment_id)
+                    except Exception as post_err:
+                        logger.error(f"Error scanning comments for FB post {post.id}: {post_err}")
+                        errors.append(str(post_err))
+            except Exception as acc_err:
+                logger.error(f"Error scanning comments for FB account {account.id}: {acc_err}")
+                errors.append(str(acc_err))
+
+        return {
+            "status": "success",
+            "processed_count": len(processed_comment_ids),
+            "errors": errors
+        }
 
 
 comment_processor = CommentProcessorService()

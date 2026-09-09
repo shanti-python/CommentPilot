@@ -1,3 +1,5 @@
+import asyncio
+import datetime
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from loguru import logger
@@ -61,9 +63,47 @@ async def lifespan(app: FastAPI):
         else:
             logger.info(f"Default superuser already exists: {admin_email}")
 
+    # Periodic comment scanning background task (configurable via COMMENT_SCAN_INTERVAL_SECONDS, default: 300s)
+    interval_seconds = getattr(settings, "COMMENT_SCAN_INTERVAL_SECONDS", 300)
+    async def periodic_comment_scanner_loop():
+        logger.info(f"[BackgroundScanner] Periodic comment scanner loop started (interval: {interval_seconds}s).")
+        # Brief initial wait on server boot
+        await asyncio.sleep(5)
+        last_scan_time = datetime.datetime.utcnow()
+        while True:
+            try:
+                scan_start_time = datetime.datetime.utcnow()
+                logger.info("[BackgroundScanner] Running periodic comment scan across active accounts...")
+                from app.services.comment_processor import comment_processor
+                async with SessionLocal() as db:
+                    res = await comment_processor.scan_and_process_pending_comments(
+                        db=db,
+                        since_timestamp=last_scan_time
+                    )
+                    count = res.get('processed_count', 0)
+                    logger.info(f"[BackgroundScanner] Scan complete. Processed {count} comment(s).")
+                last_scan_time = scan_start_time
+            except asyncio.CancelledError:
+                logger.info("[BackgroundScanner] Periodic comment scanner loop stopped.")
+                break
+            except Exception as e:
+                logger.error(f"[BackgroundScanner] Error in periodic comment scan: {e}")
+            
+            try:
+                await asyncio.sleep(interval_seconds)
+            except asyncio.CancelledError:
+                break
+
+    scanner_task = asyncio.create_task(periodic_comment_scanner_loop())
+
     yield
     # Shutdown tasks
     logger.info("Shutting down API services...")
+    scanner_task.cancel()
+    try:
+        await scanner_task
+    except asyncio.CancelledError:
+        pass
     await engine.dispose()
 
 

@@ -26,6 +26,7 @@ class Settings(BaseSettings):
     META_VERIFY_TOKEN: str
     META_ACCESS_TOKEN: Optional[str] = None  # Default fallback token if any
     META_OAUTH_SCOPES: str = "instagram_basic,instagram_manage_comments,pages_show_list,pages_read_engagement"
+    COMMENT_SCAN_INTERVAL_SECONDS: int = 300  # Default: 300s (5 minutes)
 
     # First Superuser / Admin
     FIRST_SUPERUSER: EmailStr

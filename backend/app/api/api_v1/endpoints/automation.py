@@ -71,223 +71,7 @@ async def run_bulk_automation(
     Detect pending comments across all posts and Reels for user's accounts,
     generate replies, and post them.
     """
-    accounts = await instagram_account_repo.get_by_user_id(db, user_id=current_user.id)
-    fb_accounts = await facebook_account_repo.get_by_user_id(db, user_id=current_user.id)
-    
-    processed_count = 0
-    errors = []
-
-    # Process Instagram comments
-    for account in accounts:
-        # Get active flows
-        active_flows = await automation_flow_repo.get_active_by_instagram_account_id(db, account.id)
-        if not active_flows:
-            logger.warning(f"No active automation flows for account @{account.username}")
-            continue
-
-        # Get posts for this account
-        posts = await post_repo.get_by_instagram_account_id(db, instagram_account_id=account.id)
-        
-        for post in posts:
-            try:
-                # Fetch comments from Meta
-                meta_comments = await meta_client.get_instagram_comments(
-                    media_id=post.id,
-                    page_access_token=account.page_access_token
-                )
-                
-                # Cache comments in DB
-                for mc in meta_comments:
-                    ts_val = mc.get("timestamp")
-                    if isinstance(ts_val, str):
-                        if ts_val.endswith("Z"):
-                            ts_val = ts_val[:-1] + "+00:00"
-                        try:
-                            ts_val = datetime.fromisoformat(ts_val)
-                            if ts_val.tzinfo is not None:
-                                ts_val = ts_val.astimezone(timezone.utc).replace(tzinfo=None)
-                        except ValueError:
-                            ts_val = datetime.utcnow()
-                    else:
-                        ts_val = datetime.utcnow()
-
-                    comment_in = {
-                        "id": mc["id"],
-                        "media_id": post.id,
-                        "text": mc.get("text", ""),
-                        "username": mc.get("username", "anonymous"),
-                        "timestamp": ts_val,
-                        "parent_id": mc.get("parent_id")
-                    }
-                    existing_comment = await comment_repo.get(db, id=mc["id"])
-                    if existing_comment:
-                        await comment_repo.update(db, db_obj=existing_comment, obj_in=comment_in)
-                    else:
-                        await comment_repo.create(db, obj_in=comment_in)
-                await db.commit()
-
-                # Get replies from DB to check locally
-                db_comments = await comment_repo.get_by_post_id(db, post_id=post.id)
-                replied_comment_ids = {c.parent_id for c in db_comments if c.parent_id}
-
-                # Find eligible pending comments
-                for mc in meta_comments:
-                    comment_id = mc["id"]
-                    
-                    # 1. Skip replies
-                    if mc.get("parent_id"):
-                        continue
-                        
-                    # 2. Skip if already replied in DB
-                    if comment_id in replied_comment_ids:
-                        continue
-                        
-                    # 3. Check if there is already a processed or ignored CommentEvent
-                    existing_event = await comment_event_repo.get_by_comment_id(db, comment_id)
-                    if existing_event:
-                        if existing_event.status in ["processed", "ignored"]:
-                            continue
-                        else:
-                            # Delete the event so comment_processor doesn't skip it
-                            await db.delete(existing_event)
-                            await db.commit()
-
-                    # Otherwise, run comment processor
-                    ts_val = mc.get("timestamp")
-                    if isinstance(ts_val, str):
-                        if ts_val.endswith("Z"):
-                            ts_val = ts_val[:-1] + "+00:00"
-                        try:
-                            ts_val = datetime.fromisoformat(ts_val)
-                            if ts_val.tzinfo is not None:
-                                ts_val = ts_val.astimezone(timezone.utc).replace(tzinfo=None)
-                        except ValueError:
-                            ts_val = datetime.utcnow()
-                    else:
-                        ts_val = datetime.utcnow()
-
-                    # Call the comment processor
-                    await comment_processor.process_comment(
-                        db=db,
-                        instagram_business_account_id=account.instagram_business_account_id,
-                        comment_id=comment_id,
-                        media_id=post.id,
-                        text=mc.get("text", ""),
-                        username=mc.get("username", "anonymous"),
-                        timestamp=ts_val,
-                        commenter_id=mc.get("commenter_id")
-                    )
-                    processed_count += 1
-
-            except Exception as e:
-                logger.error(f"Error running automation on post {post.id}: {str(e)}")
-                errors.append(str(e))
-
-    # Process Facebook comments
-    for account in fb_accounts:
-        # Get active flows
-        active_flows = await automation_flow_repo.get_active_by_facebook_account_id(db, account.id)
-        if not active_flows:
-            logger.warning(f"No active automation flows for Facebook page @{account.name}")
-            continue
-
-        # Get posts for this account
-        posts = await facebook_post_repo.get_by_facebook_account_id(db, facebook_account_id=account.id)
-        
-        for post in posts:
-            try:
-                # Fetch comments from Meta
-                meta_comments = await meta_client.get_facebook_comments(
-                    post_id=post.id,
-                    page_access_token=account.page_access_token
-                )
-                
-                # Cache comments in DB
-                for mc in meta_comments:
-                    ts_val = mc.get("timestamp")
-                    if isinstance(ts_val, str):
-                        if ts_val.endswith("Z"):
-                            ts_val = ts_val[:-1] + "+00:00"
-                        try:
-                            ts_val = datetime.fromisoformat(ts_val)
-                            if ts_val.tzinfo is not None:
-                                ts_val = ts_val.astimezone(timezone.utc).replace(tzinfo=None)
-                        except ValueError:
-                            ts_val = datetime.utcnow()
-                    else:
-                        ts_val = datetime.utcnow()
-
-                    comment_in = {
-                        "id": mc["id"],
-                        "media_id": post.id,
-                        "text": mc.get("text", ""),
-                        "username": mc.get("username", "anonymous"),
-                        "timestamp": ts_val,
-                        "parent_id": mc.get("parent_id")
-                    }
-                    existing_comment = await facebook_comment_repo.get(db, id=mc["id"])
-                    if existing_comment:
-                        await facebook_comment_repo.update(db, db_obj=existing_comment, obj_in=comment_in)
-                    else:
-                        await facebook_comment_repo.create(db, obj_in=comment_in)
-                await db.commit()
-
-                # Get replies from DB to check locally
-                db_comments = await facebook_comment_repo.get_by_post_id(db, post_id=post.id)
-                replied_comment_ids = {c.parent_id for c in db_comments if c.parent_id}
-
-                # Find eligible pending comments
-                for mc in meta_comments:
-                    comment_id = mc["id"]
-                    
-                    if mc.get("parent_id"):
-                        continue
-                        
-                    if comment_id in replied_comment_ids:
-                        continue
-                        
-                    existing_event = await facebook_comment_event_repo.get_by_comment_id(db, comment_id)
-                    if existing_event:
-                        if existing_event.status in ["processed", "ignored"]:
-                            continue
-                        else:
-                            await db.delete(existing_event)
-                            await db.commit()
-
-                    ts_val = mc.get("timestamp")
-                    if isinstance(ts_val, str):
-                        if ts_val.endswith("Z"):
-                            ts_val = ts_val[:-1] + "+00:00"
-                        try:
-                            ts_val = datetime.fromisoformat(ts_val)
-                            if ts_val.tzinfo is not None:
-                                ts_val = ts_val.astimezone(timezone.utc).replace(tzinfo=None)
-                        except ValueError:
-                            ts_val = datetime.utcnow()
-                    else:
-                        ts_val = datetime.utcnow()
-
-                    # Call the comment processor
-                    await comment_processor.process_facebook_comment(
-                        db=db,
-                        facebook_page_id=account.facebook_page_id,
-                        comment_id=comment_id,
-                        media_id=post.id,
-                        text=mc.get("text", ""),
-                        username=mc.get("username", "anonymous"),
-                        timestamp=ts_val
-                    )
-                    processed_count += 1
-
-            except Exception as e:
-                logger.error(f"Error running Facebook automation on post {post.id}: {str(e)}")
-                errors.append(str(e))
-
-    return {
-        "status": "success",
-        "processed_count": processed_count,
-        "errors": errors
-    }
+    return await comment_processor.scan_and_process_pending_comments(db=db, user_id=current_user.id)
 
 
 @router.post("/{flow_id}/run", response_model=dict)
@@ -315,168 +99,17 @@ async def run_single_flow(
     if not account or account.user_id != current_user.id:
         raise HTTPException(status_code=403, detail="Not enough permissions")
 
-    # Check if flow is active
     if not flow.is_active:
         raise HTTPException(status_code=400, detail="Cannot run an inactive automation flow.")
 
-    processed_count = 0
-    errors = []
-
-    # Get posts for this account
-    if is_facebook:
-        posts = await facebook_post_repo.get_by_facebook_account_id(db, facebook_account_id=account.id)
-    else:
-        posts = await post_repo.get_by_instagram_account_id(db, instagram_account_id=account.id)
-    
-    for post in posts:
-        try:
-            # Fetch comments from Meta
-            if is_facebook:
-                meta_comments = await meta_client.get_facebook_comments(
-                    post_id=post.id,
-                    page_access_token=account.page_access_token
-                )
-            else:
-                meta_comments = await meta_client.get_instagram_comments(
-                    media_id=post.id,
-                    page_access_token=account.page_access_token
-                )
-            
-            # Cache comments in DB
-            for mc in meta_comments:
-                ts_val = mc.get("timestamp")
-                if isinstance(ts_val, str):
-                    if ts_val.endswith("Z"):
-                        ts_val = ts_val[:-1] + "+00:00"
-                    try:
-                        ts_val = datetime.fromisoformat(ts_val)
-                        if ts_val.tzinfo is not None:
-                            ts_val = ts_val.astimezone(timezone.utc).replace(tzinfo=None)
-                    except ValueError:
-                        ts_val = datetime.utcnow()
-                else:
-                    ts_val = datetime.utcnow()
-
-                comment_in = {
-                    "id": mc["id"],
-                    "media_id": post.id,
-                    "text": mc.get("text", ""),
-                    "username": mc.get("username", "anonymous"),
-                    "timestamp": ts_val,
-                    "parent_id": mc.get("parent_id")
-                }
-                if is_facebook:
-                    existing_comment = await facebook_comment_repo.get(db, id=mc["id"])
-                    if existing_comment:
-                        await facebook_comment_repo.update(db, db_obj=existing_comment, obj_in=comment_in)
-                    else:
-                        await facebook_comment_repo.create(db, obj_in=comment_in)
-                else:
-                    existing_comment = await comment_repo.get(db, id=mc["id"])
-                    if existing_comment:
-                        await comment_repo.update(db, db_obj=existing_comment, obj_in=comment_in)
-                    else:
-                        await comment_repo.create(db, obj_in=comment_in)
-            await db.commit()
-
-            # Get replies from DB to check locally
-            if is_facebook:
-                db_comments = await facebook_comment_repo.get_by_post_id(db, post_id=post.id)
-            else:
-                db_comments = await comment_repo.get_by_post_id(db, post_id=post.id)
-            replied_comment_ids = {c.parent_id for c in db_comments if c.parent_id}
-
-            # Find eligible pending comments matching this flow's triggers
-            for mc in meta_comments:
-                comment_id = mc["id"]
-                
-                # 1. Skip replies
-                if mc.get("parent_id"):
-                    continue
-                    
-                # 2. Skip if already replied in DB
-                if comment_id in replied_comment_ids:
-                    continue
-                    
-                # 3. Check if there is already a processed or ignored CommentEvent
-                if is_facebook:
-                    existing_event = await facebook_comment_event_repo.get_by_comment_id(db, comment_id)
-                else:
-                    existing_event = await comment_event_repo.get_by_comment_id(db, comment_id)
-                if existing_event:
-                    if existing_event.status in ["processed", "ignored"]:
-                        continue
-                    else:
-                        # Delete the event so comment_processor doesn't skip it
-                        await db.delete(existing_event)
-                        await db.commit()
-
-                # 4. Check if the comment matches the triggers of THIS specific flow
-                matched_flow_trigger = False
-                for node in flow.nodes:
-                    if node.type == "trigger":
-                        keywords = node.config.get("keywords", [])
-                        exact_word = node.config.get("exact_word", True)
-                        for kw in keywords:
-                            from app.utils.text import contains_keyword
-                            if contains_keyword(mc.get("text", ""), kw, exact_word=exact_word):
-                                matched_flow_trigger = True
-                                break
-                    if matched_flow_trigger:
-                        break
-
-                if not matched_flow_trigger:
-                    continue
-
-                ts_val = mc.get("timestamp")
-                if isinstance(ts_val, str):
-                    if ts_val.endswith("Z"):
-                        ts_val = ts_val[:-1] + "+00:00"
-                    try:
-                        ts_val = datetime.fromisoformat(ts_val)
-                        if ts_val.tzinfo is not None:
-                            ts_val = ts_val.astimezone(timezone.utc).replace(tzinfo=None)
-                    except ValueError:
-                        ts_val = datetime.utcnow()
-                else:
-                    ts_val = datetime.utcnow()
-
-                # Call the comment processor
-                if is_facebook:
-                    await comment_processor.process_facebook_comment(
-                        db=db,
-                        facebook_page_id=account.facebook_page_id,
-                        comment_id=comment_id,
-                        media_id=post.id,
-                        text=mc.get("text", ""),
-                        username=mc.get("username", "anonymous"),
-                        timestamp=ts_val,
-                        commenter_id=mc.get("commenter_id"),
-                        target_flow_id=flow.id
-                    )
-                else:
-                    await comment_processor.process_comment(
-                        db=db,
-                        instagram_business_account_id=account.instagram_business_account_id,
-                        comment_id=comment_id,
-                        media_id=post.id,
-                        text=mc.get("text", ""),
-                        username=mc.get("username", "anonymous"),
-                        timestamp=ts_val,
-                        commenter_id=mc.get("commenter_id"),
-                        target_flow_id=flow.id
-                    )
-                processed_count += 1
-
-        except Exception as e:
-            logger.error(f"Error running single automation flow {flow.id} on post {post.id}: {str(e)}")
-            errors.append(str(e))
-
-    return {
-        "status": "success",
-        "processed_count": processed_count,
-        "errors": errors
-    }
+    target_post = flow.facebook_post_id if is_facebook else flow.instagram_post_id
+    return await comment_processor.scan_and_process_pending_comments(
+        db=db,
+        user_id=current_user.id,
+        account_id=account.id,
+        target_post_id=target_post,
+        target_flow_id=flow.id
+    )
 
 
 @router.get("/{flow_id}", response_model=AutomationFlowSchema)
@@ -547,6 +180,7 @@ async def create_flow(
         "future_post_caption": flow_in.future_post_caption,
         "future_post_scheduled_at": flow_in.future_post_scheduled_at,
         "future_flow_status": "pending" if flow_in.is_future_flow else None,
+        "apply_to_all_future_posts": flow_in.apply_to_all_future_posts,
     })
     await db.commit()
     
@@ -624,6 +258,8 @@ async def update_flow(
         update_data["future_post_scheduled_at"] = flow_in.future_post_scheduled_at
     if flow_in.future_flow_status is not None:
         update_data["future_flow_status"] = flow_in.future_flow_status
+    if flow_in.apply_to_all_future_posts is not None:
+        update_data["apply_to_all_future_posts"] = flow_in.apply_to_all_future_posts
         
     if update_data:
         await automation_flow_repo.update(db, db_obj=flow, obj_in=update_data)
@@ -895,6 +531,17 @@ async def scan_future_flow_for_post(
         await automation_flow_repo.update(db, db_obj=flow, obj_in=update_data)
         await db.commit()
         await db.refresh(flow)
+
+        # Immediately trigger comment scan for newly resolved post
+        try:
+            await comment_processor.scan_and_process_pending_comments(
+                db=db,
+                account_id=account.id,
+                target_post_id=best_match.id,
+                target_flow_id=flow.id
+            )
+        except Exception as c_err:
+            logger.warning(f"[FutureFlow] Post-resolution comment scan warning: {c_err}")
         
         return {
             "status": "resolved",
